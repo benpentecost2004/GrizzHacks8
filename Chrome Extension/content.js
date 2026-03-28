@@ -60,13 +60,6 @@
     mark.textContent = before.nodeValue;
 
     before.parentNode.replaceChild(mark, before);
-
-    const badge = document.createElement("span");
-    badge.className = "aidet-badge";
-    badge.setAttribute("data-confidence-level", level);
-    badge.textContent = confidence + "%";
-
-    mark.after(badge);
   }
 
   /* ── Handle incoming text results ── */

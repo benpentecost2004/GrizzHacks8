@@ -1,73 +1,72 @@
-/* ── AI Detector: highlight + badge styles ── */
+/* ── AI Detector: highlight styles ── */
 
 .aidet-highlight {
+  position: relative;
   border-radius: 2px;
   padding: 1px 0;
   cursor: pointer;
-  transition: filter 0.15s ease;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s ease;
 }
 
 .aidet-highlight:hover {
-  filter: brightness(0.92);
+  color: transparent !important;
+  border-radius: 6px;
 }
 
-/* Green — confidence < 20 */
+/* % overlay — covers the text on hover */
+.aidet-highlight::after {
+  content: attr(data-confidence) "%";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: system-ui, -apple-system, sans-serif;
+  border-radius: 6px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.aidet-highlight:hover::after {
+  opacity: 1;
+}
+
+/* ── Green — confidence < 20 ── */
 .aidet-highlight[data-confidence-level="low"] {
   background-color: #C8E6C9;
   color: #1b5e20;
-  border-bottom: 2px solid #43A047;
+  border-bottom-color: #43A047;
 }
 
-/* Yellow — confidence 20–69 */
+.aidet-highlight[data-confidence-level="low"]::after {
+  background-color: #1b5e20;
+  color: #C8E6C9;
+}
+
+/* ── Yellow — confidence 20–69 ── */
 .aidet-highlight[data-confidence-level="medium"] {
   background-color: #FFF176;
   color: #5c4a00;
-  border-bottom: 2px solid #F9A825;
+  border-bottom-color: #F9A825;
 }
 
-/* Red — confidence >= 70 */
+.aidet-highlight[data-confidence-level="medium"]::after {
+  background-color: #5c4a00;
+  color: #FFF176;
+}
+
+/* ── Red — confidence >= 70 ── */
 .aidet-highlight[data-confidence-level="high"] {
   background-color: #FFCDD2;
   color: #7f0000;
-  border-bottom: 2px solid #E53935;
+  border-bottom-color: #E53935;
 }
 
-/* ── Badge pill ── */
-
-.aidet-badge {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 700;
-  font-family: system-ui, -apple-system, sans-serif;
-  line-height: 1;
-  padding: 2px 6px;
-  border-radius: 10px;
-  margin-left: 2px;
-  vertical-align: middle;
-  cursor: pointer;
-  position: relative;
-  z-index: 999999;
-  transition: filter 0.15s ease;
-}
-
-.aidet-badge:hover {
-  filter: brightness(0.88);
-}
-
-.aidet-badge[data-confidence-level="low"] {
-  background-color: #C8E6C9;
-  color: #1b5e20;
-  border: 1px solid #43A047;
-}
-
-.aidet-badge[data-confidence-level="medium"] {
-  background-color: #FFF176;
-  color: #5c4a00;
-  border: 1px solid #F9A825;
-}
-
-.aidet-badge[data-confidence-level="high"] {
-  background-color: #FFCDD2;
-  color: #7f0000;
-  border: 1px solid #E53935;
+.aidet-highlight[data-confidence-level="high"]::after {
+  background-color: #7f0000;
+  color: #FFCDD2;
 }
