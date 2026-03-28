@@ -1,9 +1,27 @@
+/**
+ * background.js — Verity AI Content Detector (service worker)
+ *
+ * TEMPORARY testing stub. Creates a right-click context menu item
+ * "Analyze with Verity" that appears when text is selected. On click,
+ * it splits the selected text into random chunks with random confidence
+ * scores and sends a "text-result" message to the content script.
+ *
+ * In production, this file will be owned by the backend team and will
+ * call the Gemini API instead of generating random values.
+ */
+
+// Register the context menu item on extension install/update
 chrome.contextMenus.create({
   id: "verity-analyze",
   title: "Analyze with Verity",
   contexts: ["selection"],
 });
 
+/**
+ * Handles the context menu click. Grabs the selected text,
+ * generates fake analysis spans, and sends them to the content
+ * script on the active tab for on-page highlighting.
+ */
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId !== "verity-analyze" || !info.selectionText) return;
 
@@ -18,6 +36,12 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   });
 });
 
+/**
+ * Splits text into random chunks of 2-6 words, each assigned a
+ * random confidence score 0-100. Returns an array matching the
+ * span format expected by content.js:
+ *   [{ text: "chunk of words", confidence: 0-100, reason: "..." }]
+ */
 function generateTestSpans(text) {
   const words = text.split(/\s+/).filter(Boolean);
   if (words.length === 0) return [];
