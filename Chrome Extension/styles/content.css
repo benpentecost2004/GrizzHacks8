@@ -1,0 +1,73 @@
+/* ── AI Detector: highlight + badge styles ── */
+
+.aidet-highlight {
+  border-radius: 2px;
+  padding: 1px 0;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.aidet-highlight:hover {
+  filter: brightness(0.92);
+}
+
+/* Green — confidence < 20 */
+.aidet-highlight[data-confidence-level="low"] {
+  background-color: #C8E6C9;
+  color: #1b5e20;
+  border-bottom: 2px solid #43A047;
+}
+
+/* Yellow — confidence 20–69 */
+.aidet-highlight[data-confidence-level="medium"] {
+  background-color: #FFF176;
+  color: #5c4a00;
+  border-bottom: 2px solid #F9A825;
+}
+
+/* Red — confidence >= 70 */
+.aidet-highlight[data-confidence-level="high"] {
+  background-color: #FFCDD2;
+  color: #7f0000;
+  border-bottom: 2px solid #E53935;
+}
+
+/* ── Badge pill ── */
+
+.aidet-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: system-ui, -apple-system, sans-serif;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 10px;
+  margin-left: 2px;
+  vertical-align: middle;
+  cursor: pointer;
+  position: relative;
+  z-index: 999999;
+  transition: filter 0.15s ease;
+}
+
+.aidet-badge:hover {
+  filter: brightness(0.88);
+}
+
+.aidet-badge[data-confidence-level="low"] {
+  background-color: #C8E6C9;
+  color: #1b5e20;
+  border: 1px solid #43A047;
+}
+
+.aidet-badge[data-confidence-level="medium"] {
+  background-color: #FFF176;
+  color: #5c4a00;
+  border: 1px solid #F9A825;
+}
+
+.aidet-badge[data-confidence-level="high"] {
+  background-color: #FFCDD2;
+  color: #7f0000;
+  border: 1px solid #E53935;
+}
