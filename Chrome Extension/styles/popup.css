@@ -1,0 +1,246 @@
+/* ── Verity popup panel styles ── */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  width: 360px;
+  max-height: 500px;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  overflow-y: auto;
+}
+
+/* ── Header ── */
+
+.verity-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid #313244;
+}
+
+.verity-header h1 {
+  font-size: 16px;
+  font-weight: 700;
+  color: #89b4fa;
+}
+
+.verity-header button {
+  background: none;
+  border: none;
+  color: #6c7086;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.verity-header button:hover {
+  background: #313244;
+  color: #cdd6f4;
+}
+
+/* ── Empty state ── */
+
+.verity-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: #6c7086;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.verity-empty .empty-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+  opacity: 0.4;
+}
+
+/* ── Overall score ── */
+
+.verity-score {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #313244;
+}
+
+.verity-score-num {
+  font-size: 36px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.verity-score-num.low { color: #a6e3a1; }
+.verity-score-num.medium { color: #f9e2af; }
+.verity-score-num.high { color: #f38ba8; }
+
+.verity-score-label {
+  font-size: 12px;
+  color: #a6adc8;
+  line-height: 1.3;
+}
+
+.verity-score-label strong {
+  display: block;
+  font-size: 13px;
+  color: #cdd6f4;
+}
+
+/* ── Span cards ── */
+
+.verity-cards {
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.verity-card {
+  background: #313244;
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.verity-card:hover {
+  background: #3b3d52;
+}
+
+.verity-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.verity-card-conf {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.verity-card-conf.low {
+  background: #C8E6C9;
+  color: #1b5e20;
+}
+
+.verity-card-conf.medium {
+  background: #FFF176;
+  color: #5c4a00;
+}
+
+.verity-card-conf.high {
+  background: #FFCDD2;
+  color: #7f0000;
+}
+
+.verity-card-text {
+  flex: 1;
+  font-size: 13px;
+  color: #cdd6f4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.verity-card-reason {
+  font-size: 12px;
+  color: #a6adc8;
+  line-height: 1.4;
+  margin-top: 6px;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.2s ease;
+}
+
+.verity-card.expanded .verity-card-reason {
+  max-height: 200px;
+}
+
+/* ── History section ── */
+
+.verity-history {
+  border-top: 1px solid #313244;
+  margin-top: 4px;
+}
+
+.verity-history-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  color: #a6adc8;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.verity-history-toggle:hover {
+  color: #cdd6f4;
+}
+
+.verity-history-toggle .arrow {
+  transition: transform 0.2s;
+}
+
+.verity-history.open .verity-history-toggle .arrow {
+  transform: rotate(90deg);
+}
+
+.verity-history-list {
+  list-style: none;
+  padding: 0 12px 8px;
+  display: none;
+}
+
+.verity-history.open .verity-history-list {
+  display: block;
+}
+
+.verity-history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-size: 12px;
+}
+
+.verity-history-item:hover {
+  background: #313244;
+}
+
+.verity-history-item .hi-score {
+  font-weight: 700;
+  min-width: 28px;
+}
+
+.verity-history-item .hi-score.low { color: #a6e3a1; }
+.verity-history-item .hi-score.medium { color: #f9e2af; }
+.verity-history-item .hi-score.high { color: #f38ba8; }
+
+.verity-history-item .hi-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #cdd6f4;
+}
+
+.verity-history-item .hi-time {
+  color: #6c7086;
+  white-space: nowrap;
+}

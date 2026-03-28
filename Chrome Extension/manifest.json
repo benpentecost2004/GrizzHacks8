@@ -3,11 +3,12 @@
   "description": "Detect AI-generated text and images",
   "version": "0.1",
   "manifest_version": 3,
-  "permissions": ["activeTab", "storage", "contextMenus"],
+  "permissions": ["activeTab", "storage", "contextMenus", "scripting"],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
+    "default_popup": "popup.html",
     "default_icon": "hello_extensions.png"
   },
   "content_scripts": [

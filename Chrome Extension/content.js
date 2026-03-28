@@ -103,13 +103,39 @@
   }
 
   /**
+   * Saves a scan result to chrome.storage.local under "aidet-history".
+   * Each entry includes timestamp, page URL, and the full message data.
+   * Capped at 50 entries (oldest dropped).
+   */
+  function saveResult(msg) {
+    const entry = {
+      id: Date.now() + "-" + Math.random().toString(36).slice(2, 8),
+      timestamp: Date.now(),
+      url: location.href,
+      title: document.title,
+      type: msg.type,
+      spans: msg.spans,
+      overallScore: msg.overallScore,
+      fullReason: msg.fullReason,
+    };
+
+    chrome.storage.local.get({ "aidet-history": [] }, (data) => {
+      const history = data["aidet-history"];
+      history.unshift(entry);
+      if (history.length > 50) history.length = 50;
+      chrome.storage.local.set({ "aidet-history": history });
+    });
+  }
+
+  /**
    * Processes a "text-result" message from background.js.
    * Iterates over each span in the results and highlights all
-   * matching occurrences on the page.
+   * matching occurrences on the page, then persists the result.
    */
   function handleTextResult(msg) {
     if (!msg.spans || !msg.spans.length) return;
     msg.spans.forEach((span) => findAndWrapAll(span));
+    saveResult(msg);
   }
 
   /**
@@ -126,17 +152,99 @@
     });
   }
 
-  // Dismiss highlights when clicking anywhere outside them
+  /**
+   * When a highlight is clicked, store which span was clicked and
+   * ask the background to open the badge popup with that span's detail.
+   * Clicking anywhere else dismisses all highlights.
+   */
   document.addEventListener("click", (e) => {
-    if (!e.target.closest(".aidet-highlight")) {
+    const highlight = e.target.closest(".aidet-highlight");
+    if (highlight) {
+      const spanData = {
+        text: highlight.textContent,
+        confidence: parseInt(highlight.getAttribute("data-confidence"), 10),
+        reason: highlight.getAttribute("data-reason") || "",
+      };
+      chrome.storage.local.set({ "aidet-active-span": spanData }, () => {
+        chrome.runtime.sendMessage({ type: "open-popup" });
+      });
+    } else {
       clearAllHighlights();
     }
   });
+
+  /**
+   * Captures the current text selection from the DOM and splits it
+   * into random chunks with random confidence scores for testing.
+   * Uses the exact substring positions from the selection so the
+   * text matches the DOM precisely (no whitespace normalization).
+   */
+  function analyzeSelection() {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) return;
+
+    const text = sel.toString();
+    if (!text.trim()) return;
+
+    const spans = generateTestSpans(text);
+    if (!spans.length) return;
+
+    const avg = Math.round(spans.reduce((s, x) => s + x.confidence, 0) / spans.length);
+
+    sel.removeAllRanges();
+
+    handleTextResult({
+      type: "text-result",
+      spans,
+      overallScore: avg,
+      fullReason: "Test analysis of selected text.",
+    });
+  }
+
+  /**
+   * Splits text into random chunks of 2-6 words using exact
+   * substrings from the original text (preserving whitespace).
+   */
+  function generateTestSpans(text) {
+    const wordPattern = /\S+/g;
+    const words = [];
+    let m;
+    while ((m = wordPattern.exec(text))) {
+      words.push({ word: m[0], start: m.index, end: m.index + m[0].length });
+    }
+    if (words.length === 0) return [];
+
+    const spans = [];
+    let i = 0;
+
+    while (i < words.length) {
+      const chunkSize = Math.min(
+        Math.floor(Math.random() * 5) + 2,
+        words.length - i
+      );
+      const start = words[i].start;
+      const end = words[i + chunkSize - 1].end;
+      const chunk = text.substring(start, end);
+      const confidence = Math.floor(Math.random() * 100);
+
+      spans.push({
+        text: chunk,
+        confidence,
+        reason: "Test — " + confidence + "% confidence this chunk is AI-generated.",
+      });
+
+      i += chunkSize;
+    }
+
+    return spans;
+  }
 
   // Route incoming messages from background.js to the appropriate handler
   chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
     if (msg.type === "text-result") {
       handleTextResult(msg);
+    } else if (msg.type === "analyze-selection") {
+      analyzeSelection();
     }
   });
 })();
