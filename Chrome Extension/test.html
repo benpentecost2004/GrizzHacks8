@@ -127,11 +127,61 @@
       color: #999;
       font-style: italic;
     }
+
+    #span-queue {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .span-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #313244;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+
+    .span-item .span-text {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .span-item .span-conf {
+      font-weight: 700;
+      min-width: 36px;
+      text-align: right;
+    }
+
+    .span-item .span-conf.low { color: #a6e3a1; }
+    .span-item .span-conf.medium { color: #f9e2af; }
+    .span-item .span-conf.high { color: #f38ba8; }
+
+    .span-item button {
+      padding: 2px 8px;
+      font-size: 12px;
+      background: #45475a;
+      color: #cdd6f4;
+      border-radius: 4px;
+    }
+
+    .span-item button:hover { background: #585b70; }
+
+    #span-queue:empty::before {
+      content: "No spans queued — add substrings above";
+      color: #6c7086;
+      font-size: 12px;
+      font-style: italic;
+    }
   </style>
 </head>
 <body>
 
-<div id="test-controls">
+<div id="test-controls" data-aidet-ignore>
   <h2>Test Harness</h2>
 
   <textarea id="input-text" placeholder="Paste or type text here, then click 'Inject into page'. After that, enter a substring to highlight and click 'Highlight'."></textarea>
@@ -141,12 +191,18 @@
   </div>
 
   <div class="controls-row">
-    <label>Substring to highlight:</label>
+    <label>Substring:</label>
     <input type="text" id="input-span" placeholder="exact text to match">
     <label>Confidence:</label>
     <input type="range" id="input-confidence" min="0" max="100" value="72">
     <span id="confidence-val">72</span>
-    <button id="btn-highlight">Highlight</button>
+    <button id="btn-add-span">+ Add span</button>
+  </div>
+
+  <div id="span-queue"></div>
+
+  <div class="controls-row">
+    <button id="btn-highlight">Highlight all spans</button>
   </div>
 </div>
 
@@ -197,23 +253,56 @@
     pageContent.textContent = "";
   });
 
-  document.getElementById("btn-highlight").addEventListener("click", () => {
+  const spanQueue = [];
+  const spanQueueEl = document.getElementById("span-queue");
+
+  function renderQueue() {
+    spanQueueEl.innerHTML = "";
+    spanQueue.forEach((s, i) => {
+      const level = s.confidence >= 70 ? "high" : s.confidence >= 20 ? "medium" : "low";
+      const item = document.createElement("div");
+      item.className = "span-item";
+      item.innerHTML =
+        '<span class="span-text">"' + s.text.replace(/</g, "&lt;") + '"</span>' +
+        '<span class="span-conf ' + level + '">' + s.confidence + '%</span>' +
+        '<button data-idx="' + i + '">&times;</button>';
+      spanQueueEl.appendChild(item);
+    });
+  }
+
+  document.getElementById("btn-add-span").addEventListener("click", () => {
     const text = inputSpan.value;
     if (!text) return;
     const confidence = parseInt(inputConfidence.value, 10);
+    spanQueue.push({
+      text: text,
+      confidence: confidence,
+      reason: "Test — " + confidence + "% confidence that this text is AI-generated.",
+    });
+    inputSpan.value = "";
+    renderQueue();
+  });
+
+  spanQueueEl.addEventListener("click", (e) => {
+    if (e.target.tagName === "BUTTON" && e.target.dataset.idx != null) {
+      spanQueue.splice(parseInt(e.target.dataset.idx, 10), 1);
+      renderQueue();
+    }
+  });
+
+  document.getElementById("btn-highlight").addEventListener("click", () => {
+    if (!spanQueue.length) return;
+    const avg = Math.round(spanQueue.reduce((s, x) => s + x.confidence, 0) / spanQueue.length);
 
     chrome.runtime._fireMessage({
       type: "text-result",
-      spans: [
-        {
-          text: text,
-          confidence: confidence,
-          reason: "Test reason — " + confidence + "% confidence that this text is AI-generated.",
-        },
-      ],
-      overallScore: confidence,
+      spans: spanQueue.slice(),
+      overallScore: avg,
       fullReason: "Overall test explanation.",
     });
+
+    spanQueue.length = 0;
+    renderQueue();
   });
 </script>
 

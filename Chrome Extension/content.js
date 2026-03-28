@@ -13,16 +13,15 @@
 
   /* ── TreeWalker text-node search & wrap ── */
 
-  function findAndWrapAll(span) {
-    const needle = span.text;
-    if (!needle) return;
-
+  function findNextMatch(needle) {
     const walker = document.createTreeWalker(
       document.body,
       NodeFilter.SHOW_TEXT,
       {
         acceptNode(node) {
-          if (node.parentElement && node.parentElement.closest(".aidet-highlight")) {
+          const parent = node.parentElement;
+          if (!parent) return NodeFilter.FILTER_REJECT;
+          if (parent.closest(".aidet-highlight, [data-aidet-ignore]")) {
             return NodeFilter.FILTER_REJECT;
           }
           return NodeFilter.FILTER_ACCEPT;
@@ -30,18 +29,22 @@
       }
     );
 
-    const matchedNodes = [];
-
     let node;
     while ((node = walker.nextNode())) {
       const idx = node.nodeValue.indexOf(needle);
-      if (idx === -1) continue;
-      matchedNodes.push({ node, idx });
+      if (idx !== -1) return { node, idx };
     }
+    return null;
+  }
 
-    matchedNodes.forEach(({ node, idx }) => {
-      wrapTextNode(node, idx, needle, span.confidence, span.reason);
-    });
+  function findAndWrapAll(span) {
+    const needle = span.text;
+    if (!needle) return;
+
+    let match;
+    while ((match = findNextMatch(needle))) {
+      wrapTextNode(match.node, match.idx, needle, span.confidence, span.reason);
+    }
   }
 
   function wrapTextNode(textNode, startIdx, text, confidence, reason) {
@@ -69,12 +72,28 @@
     msg.spans.forEach((span) => findAndWrapAll(span));
   }
 
+  /* ── Clear highlights on click outside ── */
+
+  function clearAllHighlights() {
+    document.querySelectorAll(".aidet-highlight").forEach((mark) => {
+      const parent = mark.parentNode;
+      const text = document.createTextNode(mark.textContent);
+      parent.replaceChild(text, mark);
+      parent.normalize();
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".aidet-highlight")) {
+      clearAllHighlights();
+    }
+  });
+
   /* ── Message listener ── */
 
   chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
     if (msg.type === "text-result") {
       handleTextResult(msg);
     }
-    // image-result and other types will be handled in future layers
   });
 })();
