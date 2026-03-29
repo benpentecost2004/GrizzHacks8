@@ -66,14 +66,16 @@
   }
 
   /**
-   * Finds and wraps all in-node occurrences of span.text.
-   * This scans each text node once and wraps from right-to-left,
-   * which is much faster than re-walking the whole DOM per match.
+   * Finds and wraps all occurrences of span.text in the DOM.
+   * First tries exact single-node matches. If none are found,
+   * falls back to normalized whitespace matching across the
+   * concatenated text of the page body.
    */
   function findAndWrapAll(span) {
     const needle = span.text;
     if (!needle) return;
 
+    let found = false;
     const textNodes = collectTextNodes();
 
     for (const textNode of textNodes) {
@@ -97,6 +99,44 @@
           span.confidence,
           span.reason,
         );
+        found = true;
+      }
+    }
+
+    if (found) return;
+
+    // Fallback: normalize whitespace and try matching a trimmed
+    // version against each text node. Selections that cross element
+    // boundaries produce text with newlines/extra spaces that don't
+    // exist in individual text nodes.
+    const trimmed = needle.replace(/\s+/g, " ").trim();
+    if (!trimmed || trimmed === needle) return;
+
+    const refreshed = collectTextNodes();
+    for (const textNode of refreshed) {
+      const haystack = textNode.nodeValue;
+      if (!haystack) continue;
+      const idx = haystack.indexOf(trimmed);
+      if (idx !== -1) {
+        wrapTextNode(textNode, idx, trimmed, span.confidence, span.reason);
+        return;
+      }
+    }
+
+    // Last resort: try to find the longest leading substring of the
+    // selection that exists in a text node (handles cross-element selections).
+    for (const textNode of refreshed) {
+      const haystack = textNode.nodeValue;
+      if (!haystack) continue;
+
+      const words = trimmed.split(" ");
+      for (let len = words.length; len >= 3; len--) {
+        const partial = words.slice(0, len).join(" ");
+        const idx = haystack.indexOf(partial);
+        if (idx !== -1) {
+          wrapTextNode(textNode, idx, partial, span.confidence, span.reason);
+          return;
+        }
       }
     }
   }
@@ -220,6 +260,10 @@
       activeTextLoader = null;
     }
     if (!msg.spans || !msg.spans.length) return;
+
+    clearTextHighlights();
+    document.body.normalize();
+
     msg.spans.forEach((span) => findAndWrapAll(span));
     saveResult(msg);
   }
@@ -380,15 +424,23 @@
    * normalize() to merge adjacent text nodes back together.
    * Also removes any image analysis pill overlays.
    */
-  function clearAllHighlights() {
+  /**
+   * Removes only text highlights, restoring original text nodes.
+   * Does not touch image/video pills.
+   */
+  function clearTextHighlights() {
     removeHighlightOverlay();
-
     document.querySelectorAll(".aidet-highlight").forEach((mark) => {
       const parent = mark.parentNode;
+      if (!parent) return;
       const text = document.createTextNode(mark.textContent);
       parent.replaceChild(text, mark);
       parent.normalize();
     });
+  }
+
+  function clearAllHighlights() {
+    clearTextHighlights();
 
     document.querySelectorAll(".aidet-image-pill").forEach((pill) => {
       window.removeEventListener("scroll", pill._repositionHandler);
