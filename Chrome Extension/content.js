@@ -22,20 +22,20 @@
   /**
    * Maps a numeric confidence (0-100) to a tier string used by
    * CSS attribute selectors to apply the correct color scheme.
-   *   "low"    → green  (< 20, likely human)
-   *   "medium" → yellow (20-69, uncertain)
-   *   "high"   → red    (>= 70, likely AI)
+   *   "low"    → green  (< 50, not AI)
+   *   "medium" → yellow (50-79, possibly AI)
+   *   "high"   → red    (>= 80, likely AI)
    */
   function confidenceLevel(confidence) {
-    if (confidence >= 70) return "high";
-    if (confidence >= 20) return "medium";
+    if (confidence >= 80) return "high";
+    if (confidence >= 50) return "medium";
     return "low";
   }
 
   function confidenceLabel(confidence) {
-    if (confidence >= 70) return "Likely AI";
-    if (confidence >= 20) return "Possibly AI";
-    return "Likely real";
+    if (confidence >= 80) return "Likely AI";
+    if (confidence >= 50) return "Possibly AI";
+    return "Not AI";
   }
 
   /**

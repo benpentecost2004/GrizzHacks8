@@ -15,21 +15,21 @@
   filter: brightness(0.96);
 }
 
-/* ── Green — confidence < 20 ── */
+/* ── Green — confidence < 50 (not AI) ── */
 .aidet-highlight[data-confidence-level="low"] {
   background-color: #c8e6c9;
   color: #1b5e20;
   border-bottom-color: #43a047;
 }
 
-/* ── Yellow — confidence 20–69 ── */
+/* ── Yellow — confidence 50–79 (possibly AI) ── */
 .aidet-highlight[data-confidence-level="medium"] {
   background-color: #fff176;
   color: #5c4a00;
   border-bottom-color: #f9a825;
 }
 
-/* ── Red — confidence >= 70 ── */
+/* ── Red — confidence >= 80 (likely AI) ── */
 .aidet-highlight[data-confidence-level="high"] {
   background-color: #ffcdd2;
   color: #7f0000;
