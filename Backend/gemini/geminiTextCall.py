@@ -6,6 +6,7 @@ from google import genai
 from google.genai import types
 
 load_dotenv()
+
 client = genai.Client()
 
 try:
@@ -20,18 +21,13 @@ class DetectionResult(BaseModel):
     confidence: float
     reasoning: str
 
-def detect_ai_image(image_path: str) -> DetectionResult:
-    try:
-        img = Image.open(image_path)
-    except Exception as e:
-        return json.dumps({"error": f"Failed to open image: {str(e)}"})
-    
-    prompt_text = prompts.get("image_prompt", "Analyze this image and determine if it is AI-generated or real.")
+def detect_ai_text(text: str) -> DetectionResult:
+    prompt_text = prompts.get("text_prompt", "State that the prompt was not properly read")
 
     try:
         response = client.models.generate_content(
             model="gemini-2.5-flash",
-            contents=[prompt_text, img],
+            contents=[prompt_text, text],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=DetectionResult,
@@ -41,6 +37,3 @@ def detect_ai_image(image_path: str) -> DetectionResult:
         return response.text
     except Exception as e:
         return json.dumps({"error": f"API call failed: {str(e)}"})
-    
-
-
