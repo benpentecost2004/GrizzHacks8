@@ -1,4 +1,7 @@
 import io
+import json
+import os
+import tempfile
 from typing import Any, Dict
 
 import requests
@@ -14,6 +17,7 @@ except ImportError:
     pillow_heif = None
 
 from geminiImageCall import detect_ai_image_as_dict
+from geminiVideoCall import detect_ai_video
 
 app = Flask(__name__)
 CORS(app)
@@ -109,6 +113,58 @@ def analyze_image() -> Any:
             "confidence": confidence,
             "reasoning": reasoning,
             "raw": model_result,
+        }
+    )
+
+
+@app.post("/analyze-video")
+def analyze_video() -> Any:
+    payload = request.get_json(silent=True) or {}
+    video_url = payload.get("videoUrl")
+
+    if not video_url:
+        return jsonify({"error": "videoUrl is required."}), 400
+
+    tmp_path = None
+    try:
+        resp = requests.get(video_url, timeout=30, stream=True)
+        resp.raise_for_status()
+
+        suffix = ".mp4"
+        if ".webm" in video_url:
+            suffix = ".webm"
+
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+        tmp_path = tmp.name
+        for chunk in resp.iter_content(chunk_size=1 << 20):
+            tmp.write(chunk)
+        tmp.close()
+    except Exception as exc:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        return jsonify({"error": f"Failed to download video: {exc}"}), 400
+
+    try:
+        raw = detect_ai_video(tmp_path, num_frames=5)
+        result = json.loads(raw)
+    except Exception as exc:
+        return jsonify({"error": f"Video analysis failed: {exc}"}), 500
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+    if "error" in result:
+        return jsonify(result), 500
+
+    confidence = _normalize_confidence(result.get("confidence"))
+    reasoning = str(result.get("reasoning", "")).strip()
+
+    return jsonify(
+        {
+            "label": result.get("label", "unknown"),
+            "confidence": confidence,
+            "reasoning": reasoning,
+            "raw": result,
         }
     )
 

@@ -8,7 +8,9 @@
  */
 
 const IMAGE_API_URL = "http://127.0.0.1:8000/analyze-image";
+const VIDEO_API_URL = "http://127.0.0.1:8000/analyze-video";
 const IMAGE_API_TIMEOUT_MS = 15000;
+const VIDEO_API_TIMEOUT_MS = 60000;
 
 function toShortText(value, maxLen = 500) {
   const text = String(value ?? "").trim();
@@ -164,16 +166,16 @@ chrome.runtime.onInstalled.addListener(async () => {
 /**
  * Handle messages from content script:
  * - "open-popup": open the badge popup
- * - "found-image": content script found an image near the right-click,
- *   kick off the image analysis pipeline
+ * - "found-image": content script found an image near the right-click
+ * - "found-video": content script found a video near the right-click
  */
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg.type === "open-popup") {
     chrome.action.openPopup().catch(() => {});
   } else if (msg.type === "found-image" && sender.tab?.id) {
     analyzeImage(sender.tab.id, msg.srcUrl);
-  } else if (msg.type === "analyze-frame" && sender.tab?.id) {
-    analyzeVideoFrame(sender.tab.id, msg);
+  } else if (msg.type === "found-video" && sender.tab?.id) {
+    analyzeVideo(sender.tab.id, msg.videoUrl);
   }
 });
 
@@ -241,34 +243,86 @@ async function analyzeImage(tabId, srcUrl) {
 }
 
 /**
- * Analyzes a single video frame (sent as a base64 data URL from
- * the content script). Sends the frame to the image analysis
- * backend, then forwards the per-frame result back to the content script.
+ * Sends a video URL to the backend /analyze-video endpoint.
+ * The backend downloads the video, extracts frames with OpenCV,
+ * runs each through Gemini, and returns aggregated results.
  */
-async function analyzeVideoFrame(tabId, msg) {
-  const { frameDataUrl, frameIndex, totalFrames, videoSrc } = msg;
+async function analyzeVideoWithBackend(videoUrl) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), VIDEO_API_TIMEOUT_MS);
 
   try {
-    const result = await analyzeImageWithBackend(frameDataUrl);
+    const response = await fetch(VIDEO_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ videoUrl }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      const body = toShortText(await response.text());
+      throw { kind: "http", status: response.status, message: body };
+    }
+
+    return await response.json();
+  } catch (error) {
+    clearTimeout(timeout);
+    if (error?.kind) throw error;
+    throw { kind: "network", message: String(error?.message || error) };
+  }
+}
+
+/**
+ * Full video analysis pipeline: tells the content script to show
+ * a loading state, calls the backend, then sends the result back.
+ */
+async function analyzeVideo(tabId, videoUrl) {
+  console.log("[Verity] Starting video analysis", { tabId, videoUrl });
+
+  await ensureContentScript(tabId);
+  await chrome.tabs.sendMessage(tabId, {
+    type: "video-loading",
+    videoUrl,
+  });
+
+  try {
+    const result = await analyzeVideoWithBackend(videoUrl);
+    const score = _normalizeConfidence(result.confidence);
 
     await chrome.tabs.sendMessage(tabId, {
-      type: "video-frame-result",
-      videoSrc,
-      frameIndex,
-      totalFrames,
-      score: result.confidence ?? 0,
+      type: "video-result",
+      videoUrl,
+      score,
+      label: result.label || "",
       reason: result.reasoning || "",
     });
   } catch (error) {
+    console.error("[Verity] Video analysis failed", { tabId, videoUrl, error });
     await chrome.tabs.sendMessage(tabId, {
-      type: "video-frame-result",
-      videoSrc,
-      frameIndex,
-      totalFrames,
+      type: "video-result",
+      videoUrl,
       score: 0,
-      reason: "Frame analysis failed.",
+      reason: formatVideoErrorMessage(error),
     });
   }
+}
+
+function _normalizeConfidence(value) {
+  let c = parseFloat(value) || 0;
+  if (c <= 1) c *= 100;
+  return Math.max(0, Math.min(100, Math.round(c)));
+}
+
+function formatVideoErrorMessage(err) {
+  if (err?.kind === "network") {
+    return "Video analysis failed. Network error: " + (err.message || "unknown") +
+      ". Check: backend running on 127.0.0.1:8000, extension reloaded.";
+  }
+  if (err?.kind === "http") {
+    return "Video analysis failed (HTTP " + err.status + "): " + (err.message || "");
+  }
+  return "Video analysis failed: " + String(err?.message || err);
 }
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
@@ -283,11 +337,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     await ensureContentScript(tab.id);
     await chrome.tabs.sendMessage(tab.id, { type: "find-image" });
   } else if (info.menuItemId === "verity-analyze-video") {
-    await ensureContentScript(tab.id);
-    await chrome.tabs.sendMessage(tab.id, {
-      type: "analyze-video",
-      srcUrl: info.srcUrl,
-    });
+    await analyzeVideo(tab.id, info.srcUrl);
   } else if (info.menuItemId === "verity-find-video") {
     await ensureContentScript(tab.id);
     await chrome.tabs.sendMessage(tab.id, { type: "find-video" });

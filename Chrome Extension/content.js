@@ -465,6 +465,8 @@
 
   /* ── Video analysis ── */
 
+  const videoOverlays = {};
+
   /**
    * Finds a <video> element near the right-click target,
    * same DOM traversal strategy as findNearestImage.
@@ -487,43 +489,31 @@
 
   /**
    * Handles "find-video" — locates a video near the right-click
-   * target and kicks off analysis.
+   * target and sends its URL to background for backend analysis.
    */
   function handleFindVideo() {
     const video = findNearestVideo(lastContextTarget);
     if (!video) return;
-    analyzeVideo(video);
+    const src = video.currentSrc || video.src;
+    if (!src) return;
+    chrome.runtime.sendMessage({ type: "found-video", videoUrl: src });
   }
 
   /**
-   * Handles "analyze-video" — finds the video by srcUrl and
-   * kicks off analysis.
+   * Handles "video-loading" — creates the border overlay + badge
+   * on the target video while the backend processes frames.
    */
-  function handleAnalyzeVideo(msg) {
-    let video = null;
-    if (msg.srcUrl) {
-      video = document.querySelector('video[src="' + CSS.escape(msg.srcUrl) + '"]');
-    }
-    if (!video) video = findNearestVideo(lastContextTarget);
+  function handleVideoLoading(msg) {
+    const videoUrl = msg.videoUrl;
+    if (!videoUrl) return;
+
+    let video = document.querySelector('video[src="' + CSS.escape(videoUrl) + '"]');
     if (!video) video = document.querySelector("video");
     if (!video) return;
-    analyzeVideo(video);
-  }
 
-  /**
-   * Creates a colored border overlay around the video and a score
-   * badge beside it. Captures the current visible frame (what's
-   * on-screen right now) via canvas.drawImage and sends it to the
-   * image analysis backend. No cloning or seeking — works on
-   * blob: URLs, cross-origin, and MediaSource-backed players.
-   */
-  function analyzeVideo(video) {
-    const videoSrc = video.currentSrc || video.src || "video-" + Date.now();
-
-    // Build the border overlay + badge container
     const overlay = document.createElement("div");
     overlay.className = "aidet-video-overlay aidet-loading";
-    overlay.setAttribute("data-src-url", videoSrc);
+    overlay.setAttribute("data-src-url", videoUrl);
     document.body.appendChild(overlay);
 
     const badge = document.createElement("div");
@@ -547,73 +537,76 @@
     window.addEventListener("resize", reposition, { passive: true });
 
     overlay._repositionHandler = reposition;
-    badge._repositionHandler = reposition;
     overlay._badge = badge;
     overlay._video = video;
+    badge._repositionHandler = reposition;
 
-    // Capture the current visible frame directly
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 360;
-    const ctx = canvas.getContext("2d");
-
-    let frameDataUrl = null;
-    try {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      frameDataUrl = canvas.toDataURL("image/jpeg", 0.75);
-    } catch (_) {
-      // tainted canvas — cross-origin without CORS headers
-    }
-
-    if (!frameDataUrl) {
-      showVideoResult(overlay, badge, video, videoSrc, 0,
-        "Could not capture video frame (cross-origin restriction).", reposition);
-      return;
-    }
-
-    chrome.runtime.sendMessage({
-      type: "analyze-frame",
-      frameDataUrl,
-      frameIndex: 0,
-      totalFrames: 1,
-      videoSrc,
-    });
+    videoOverlays[videoUrl] = overlay;
   }
 
   /**
-   * Receives the single-frame result from background and renders
-   * the final colored border + score badge.
+   * Handles "video-result" — replaces the loading state with the
+   * final colored border + score badge once the backend returns.
    */
-  function handleVideoFrameResult(msg) {
-    const overlay = document.querySelector(
-      '.aidet-video-overlay[data-src-url="' + CSS.escape(msg.videoSrc) + '"]'
-    );
-    if (!overlay) return;
+  function handleVideoResult(msg) {
+    const videoUrl = msg.videoUrl;
+    const overlay = videoOverlays[videoUrl];
 
-    const badge = overlay._badge;
-    const video = overlay._video;
-    const reposition = overlay._repositionHandler;
+    // If no loading overlay was created (e.g. direct context menu on <video>
+    // where we have the srcUrl), find the video and build the overlay now.
+    let video, badge, reposition;
+    if (overlay) {
+      video = overlay._video;
+      badge = overlay._badge;
+      reposition = overlay._repositionHandler;
+    } else {
+      video = document.querySelector('video[src="' + CSS.escape(videoUrl) + '"]')
+        || document.querySelector("video");
+      if (!video) return;
+    }
+
     const score = msg.score ?? 0;
     const reason = msg.reason || "";
-
-    showVideoResult(overlay, badge, video, msg.videoSrc, score, reason, reposition);
-  }
-
-  /**
-   * Applies the final result state to the video overlay + badge.
-   * Colors the border, fills in the score, and makes the badge
-   * clickable to open the popup.
-   */
-  function showVideoResult(overlay, badge, video, videoSrc, score, reason, reposition) {
     const level = confidenceLevel(score);
 
-    overlay.classList.remove("aidet-loading");
-    overlay.setAttribute("data-confidence-level", level);
+    if (overlay) {
+      overlay.classList.remove("aidet-loading");
+      overlay.setAttribute("data-confidence-level", level);
+    } else {
+      const ov = document.createElement("div");
+      ov.className = "aidet-video-overlay";
+      ov.setAttribute("data-src-url", videoUrl);
+      ov.setAttribute("data-confidence-level", level);
+      document.body.appendChild(ov);
+
+      badge = document.createElement("div");
+      badge.className = "aidet-video-badge";
+      document.body.appendChild(badge);
+
+      function positionOverlay() {
+        const rect = video.getBoundingClientRect();
+        ov.style.top = (window.scrollY + rect.top) + "px";
+        ov.style.left = (window.scrollX + rect.left) + "px";
+        ov.style.width = rect.width + "px";
+        ov.style.height = rect.height + "px";
+        badge.style.top = (window.scrollY + rect.top + 8) + "px";
+        badge.style.left = (window.scrollX + rect.right + 8) + "px";
+      }
+      positionOverlay();
+      reposition = () => positionOverlay();
+      window.addEventListener("scroll", reposition, { passive: true });
+      window.addEventListener("resize", reposition, { passive: true });
+      ov._repositionHandler = reposition;
+      ov._badge = badge;
+      ov._video = video;
+      badge._repositionHandler = reposition;
+      videoOverlays[videoUrl] = ov;
+    }
 
     badge.classList.remove("aidet-loading");
     badge.setAttribute("data-confidence-level", level);
     badge.setAttribute("data-media-type", "video");
-    badge.setAttribute("data-src-url", videoSrc);
+    badge.setAttribute("data-src-url", videoUrl);
     badge.setAttribute("data-confidence", score);
     badge.setAttribute("data-reason", reason);
     badge.innerHTML =
@@ -627,7 +620,7 @@
       e.stopPropagation();
       const pillData = {
         type: "video",
-        srcUrl: videoSrc,
+        srcUrl: videoUrl,
         score,
         reason,
       };
@@ -638,12 +631,13 @@
 
     saveResult({
       type: "video-result",
-      srcUrl: videoSrc,
+      srcUrl: videoUrl,
       score,
       reason,
       overallScore: score,
-      framesAnalyzed: 1,
     });
+
+    delete videoOverlays[videoUrl];
   }
 
   // Route incoming messages from background.js to the appropriate handler
@@ -658,12 +652,12 @@
       analyzeSelection();
     } else if (msg.type === "find-image") {
       handleFindImage();
-    } else if (msg.type === "analyze-video") {
-      handleAnalyzeVideo(msg);
     } else if (msg.type === "find-video") {
       handleFindVideo();
-    } else if (msg.type === "video-frame-result") {
-      handleVideoFrameResult(msg);
+    } else if (msg.type === "video-loading") {
+      handleVideoLoading(msg);
+    } else if (msg.type === "video-result") {
+      handleVideoResult(msg);
     }
   });
 })();
