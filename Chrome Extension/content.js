@@ -17,6 +17,7 @@
   "use strict";
 
   const PROCESSED_ATTR = "data-aidet-processed";
+  let activeHighlightOverlay = null;
 
   /**
    * Maps a numeric confidence (0-100) to a tier string used by
@@ -31,20 +32,23 @@
     return "low";
   }
 
+  function confidenceLabel(confidence) {
+    if (confidence >= 70) return "Likely AI";
+    if (confidence >= 20) return "Possibly AI";
+    return "Likely real";
+  }
+
   /**
-   * Walks all text nodes in document.body via TreeWalker and returns
-   * the first one containing `needle`. Skips text inside existing
-   * highlights (.aidet-highlight) and any element marked with
-   * [data-aidet-ignore] (e.g. our own UI elements).
-   *
-   * Returns { node, idx } or null if no match is found.
+   * Returns eligible text nodes for text highlighting.
+   * Skips text inside existing highlights and extension UI.
    */
-  function findNextMatch(needle) {
+  function collectTextNodes() {
     const walker = document.createTreeWalker(
       document.body,
       NodeFilter.SHOW_TEXT,
       {
         acceptNode(node) {
+          if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
           const parent = node.parentElement;
           if (!parent) return NodeFilter.FILTER_REJECT;
           if (parent.closest(".aidet-highlight, [data-aidet-ignore]")) {
@@ -55,26 +59,45 @@
       },
     );
 
+    const nodes = [];
     let node;
-    while ((node = walker.nextNode())) {
-      const idx = node.nodeValue.indexOf(needle);
-      if (idx !== -1) return { node, idx };
-    }
-    return null;
+    while ((node = walker.nextNode())) nodes.push(node);
+    return nodes;
   }
 
   /**
-   * Finds and wraps ALL occurrences of span.text in the page DOM.
-   * Re-walks the DOM after each wrap to avoid stale node references
-   * (wrapping splits text nodes, invalidating earlier pointers).
+   * Finds and wraps all in-node occurrences of span.text.
+   * This scans each text node once and wraps from right-to-left,
+   * which is much faster than re-walking the whole DOM per match.
    */
   function findAndWrapAll(span) {
     const needle = span.text;
     if (!needle) return;
 
-    let match;
-    while ((match = findNextMatch(needle))) {
-      wrapTextNode(match.node, match.idx, needle, span.confidence, span.reason);
+    const textNodes = collectTextNodes();
+
+    for (const textNode of textNodes) {
+      const haystack = textNode.nodeValue;
+      if (!haystack || haystack.indexOf(needle) === -1) continue;
+
+      const indices = [];
+      let from = 0;
+      while (from < haystack.length) {
+        const idx = haystack.indexOf(needle, from);
+        if (idx === -1) break;
+        indices.push(idx);
+        from = idx + needle.length;
+      }
+
+      for (let i = indices.length - 1; i >= 0; i--) {
+        wrapTextNode(
+          textNode,
+          indices[i],
+          needle,
+          span.confidence,
+          span.reason,
+        );
+      }
     }
   }
 
@@ -89,7 +112,7 @@
     const level = confidenceLevel(confidence);
 
     const before = textNode.splitText(startIdx);
-    const after = before.splitText(text.length);
+    before.splitText(text.length);
 
     const mark = document.createElement("mark");
     mark.className = "aidet-highlight";
@@ -100,6 +123,62 @@
     mark.textContent = before.nodeValue;
 
     before.parentNode.replaceChild(mark, before);
+  }
+
+  function removeHighlightOverlay() {
+    if (!activeHighlightOverlay) return;
+    window.removeEventListener(
+      "scroll",
+      activeHighlightOverlay._repositionHandler,
+    );
+    window.removeEventListener(
+      "resize",
+      activeHighlightOverlay._repositionHandler,
+    );
+    activeHighlightOverlay.remove();
+    activeHighlightOverlay = null;
+  }
+
+  function showHighlightOverlay(mark) {
+    if (!mark || !document.body.contains(mark)) return;
+
+    removeHighlightOverlay();
+
+    const overlay = document.createElement("div");
+    overlay.className = "aidet-highlight-overlay";
+    overlay.setAttribute(
+      "data-confidence-level",
+      mark.getAttribute("data-confidence-level") || "low",
+    );
+    const confidence = parseInt(
+      mark.getAttribute("data-confidence") || "0",
+      10,
+    );
+    overlay.textContent = confidence + "% " + confidenceLabel(confidence);
+    document.body.appendChild(overlay);
+
+    function positionOverlay() {
+      if (!document.body.contains(mark)) {
+        removeHighlightOverlay();
+        return;
+      }
+
+      const rect = mark.getBoundingClientRect();
+      overlay.style.top = window.scrollY + rect.top + "px";
+      overlay.style.left = window.scrollX + rect.left + "px";
+      overlay.style.width = rect.width + "px";
+      overlay.style.height = rect.height + "px";
+    }
+
+    positionOverlay();
+    overlay._repositionHandler = () => positionOverlay();
+    window.addEventListener("scroll", overlay._repositionHandler, {
+      passive: true,
+    });
+    window.addEventListener("resize", overlay._repositionHandler, {
+      passive: true,
+    });
+    activeHighlightOverlay = overlay;
   }
 
   /**
@@ -243,8 +322,11 @@
    * hash so CDN URLs with rotating tokens can still match.
    */
   function urlPathname(url) {
-    try { return new URL(url).pathname; }
-    catch { return url; }
+    try {
+      return new URL(url).pathname;
+    } catch {
+      return url;
+    }
   }
 
   /**
@@ -268,7 +350,11 @@
     // Pass 2: pathname match (ignores query params)
     for (const el of allImgs) {
       if (el.hasAttribute("data-aidet-analyzed")) continue;
-      if (urlPathname(el.src) === needle || urlPathname(el.currentSrc) === needle) return el;
+      if (
+        urlPathname(el.src) === needle ||
+        urlPathname(el.currentSrc) === needle
+      )
+        return el;
     }
 
     // Pass 3: check srcset entries
@@ -291,6 +377,8 @@
    * Also removes any image analysis pill overlays.
    */
   function clearAllHighlights() {
+    removeHighlightOverlay();
+
     document.querySelectorAll(".aidet-highlight").forEach((mark) => {
       const parent = mark.parentNode;
       const text = document.createTextNode(mark.textContent);
@@ -317,6 +405,27 @@
       img.removeAttribute("data-aidet-analyzed");
     });
   }
+
+  document.addEventListener("mouseover", (e) => {
+    const highlight = e.target.closest(".aidet-highlight");
+    if (highlight) showHighlightOverlay(highlight);
+  });
+
+  document.addEventListener("mouseout", (e) => {
+    const fromHighlight = e.target.closest(".aidet-highlight");
+    if (!fromHighlight) return;
+
+    const toHighlight =
+      e.relatedTarget && e.relatedTarget.closest
+        ? e.relatedTarget.closest(".aidet-highlight")
+        : null;
+
+    if (toHighlight) {
+      showHighlightOverlay(toHighlight);
+    } else {
+      removeHighlightOverlay();
+    }
+  });
 
   /**
    * When a highlight or image wrap is clicked, store which item was
@@ -550,18 +659,19 @@
 
     const badge = document.createElement("div");
     badge.className = "aidet-video-badge aidet-loading";
-    badge.innerHTML = '<span class="aidet-video-badge-icon">&#9654;</span> Analyzing\u2026';
+    badge.innerHTML =
+      '<span class="aidet-video-badge-icon">&#9654;</span> Analyzing\u2026';
     document.body.appendChild(badge);
 
     function positionOverlay() {
       const rect = video.getBoundingClientRect();
-      overlay.style.top = (window.scrollY + rect.top) + "px";
-      overlay.style.left = (window.scrollX + rect.left) + "px";
+      overlay.style.top = window.scrollY + rect.top + "px";
+      overlay.style.left = window.scrollX + rect.left + "px";
       overlay.style.width = rect.width + "px";
       overlay.style.height = rect.height + "px";
 
-      badge.style.top = (window.scrollY + rect.top + 8) + "px";
-      badge.style.left = (window.scrollX + rect.right + 8) + "px";
+      badge.style.top = window.scrollY + rect.top + 8 + "px";
+      badge.style.left = window.scrollX + rect.right + 8 + "px";
     }
     positionOverlay();
     const reposition = () => positionOverlay();
@@ -584,7 +694,9 @@
     const videoUrl = msg.videoUrl;
     if (!videoUrl) return;
 
-    let video = document.querySelector('video[src="' + CSS.escape(videoUrl) + '"]');
+    let video = document.querySelector(
+      'video[src="' + CSS.escape(videoUrl) + '"]',
+    );
     if (!video) video = document.querySelector("video");
     if (!video) return;
 
@@ -607,8 +719,9 @@
       badge = overlay._badge;
       reposition = overlay._repositionHandler;
     } else {
-      video = document.querySelector('video[src="' + CSS.escape(videoUrl) + '"]')
-        || document.querySelector("video");
+      video =
+        document.querySelector('video[src="' + CSS.escape(videoUrl) + '"]') ||
+        document.querySelector("video");
       if (!video) return;
     }
 
@@ -632,12 +745,12 @@
 
       function positionOverlay() {
         const rect = video.getBoundingClientRect();
-        ov.style.top = (window.scrollY + rect.top) + "px";
-        ov.style.left = (window.scrollX + rect.left) + "px";
+        ov.style.top = window.scrollY + rect.top + "px";
+        ov.style.left = window.scrollX + rect.left + "px";
         ov.style.width = rect.width + "px";
         ov.style.height = rect.height + "px";
-        badge.style.top = (window.scrollY + rect.top + 8) + "px";
-        badge.style.left = (window.scrollX + rect.right + 8) + "px";
+        badge.style.top = window.scrollY + rect.top + 8 + "px";
+        badge.style.left = window.scrollX + rect.right + 8 + "px";
       }
       positionOverlay();
       reposition = () => positionOverlay();
@@ -658,10 +771,12 @@
     badge.setAttribute("data-reason", reason);
     badge.innerHTML =
       '<span class="aidet-video-badge-icon">&#9654;</span> ' +
-      '<span class="aidet-video-badge-score">' + score + '%</span>' +
+      '<span class="aidet-video-badge-score">' +
+      score +
+      "%</span>" +
       '<span class="aidet-video-badge-label">' +
-        (score >= 70 ? "Likely AI" : score >= 20 ? "Possibly AI" : "Likely real") +
-      '</span>';
+      confidenceLabel(score) +
+      "</span>";
 
     badge.addEventListener("click", (e) => {
       e.stopPropagation();

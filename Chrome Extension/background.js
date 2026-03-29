@@ -12,7 +12,7 @@ const VIDEO_API_URL = "http://127.0.0.1:8000/analyze-video";
 const IMAGE_API_TIMEOUT_MS = 15000;
 const VIDEO_API_TIMEOUT_MS = 60000;
 
-function toShortText(value, maxLen = 500) {
+function toShortText(value, maxLen = 5000) {
   const text = String(value ?? "").trim();
   if (text.length <= maxLen) return text;
   return text.slice(0, maxLen) + "...";
