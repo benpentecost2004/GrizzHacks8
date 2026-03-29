@@ -489,28 +489,60 @@
 
   /**
    * Handles "find-video" — locates a video near the right-click
-   * target and sends its URL to background for backend analysis.
+   * target. For blob: URLs (Instagram, Twitter, etc.) captures the
+   * current frame via canvas and sends it as a data URL. For real
+   * HTTP URLs, sends the URL to the backend to download & analyze.
    */
   function handleFindVideo() {
     const video = findNearestVideo(lastContextTarget);
     if (!video) return;
     const src = video.currentSrc || video.src;
     if (!src) return;
-    chrome.runtime.sendMessage({ type: "found-video", videoUrl: src });
+
+    if (src.startsWith("blob:")) {
+      captureFrameAndSend(video, src);
+    } else {
+      chrome.runtime.sendMessage({ type: "found-video", videoUrl: src });
+    }
   }
 
   /**
-   * Handles "video-loading" — creates the border overlay + badge
-   * on the target video while the backend processes frames.
+   * Captures the current visible frame of a <video> via canvas,
+   * converts to a JPEG data URL, and sends it to background as
+   * a single-frame image analysis. Used for blob: URLs that the
+   * backend can't download.
    */
-  function handleVideoLoading(msg) {
-    const videoUrl = msg.videoUrl;
-    if (!videoUrl) return;
+  function captureFrameAndSend(video, videoUrl) {
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 360;
+    const ctx = canvas.getContext("2d");
 
-    let video = document.querySelector('video[src="' + CSS.escape(videoUrl) + '"]');
-    if (!video) video = document.querySelector("video");
-    if (!video) return;
+    let dataUrl = null;
+    try {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+    } catch (_) {
+      // tainted canvas
+    }
 
+    if (!dataUrl) return;
+
+    showVideoLoadingOverlay(video, videoUrl);
+
+    chrome.runtime.sendMessage({
+      type: "analyze-video-frame",
+      frameDataUrl: dataUrl,
+      videoUrl,
+    });
+  }
+
+  /**
+   * Creates the border overlay + loading badge on a video element.
+   * Shared by handleVideoLoading (backend flow) and
+   * captureFrameAndSend (blob: URL flow).
+   */
+  function showVideoLoadingOverlay(video, videoUrl) {
     const overlay = document.createElement("div");
     overlay.className = "aidet-video-overlay aidet-loading";
     overlay.setAttribute("data-src-url", videoUrl);
@@ -542,6 +574,21 @@
     badge._repositionHandler = reposition;
 
     videoOverlays[videoUrl] = overlay;
+  }
+
+  /**
+   * Handles "video-loading" — finds the video element and
+   * creates the loading overlay.
+   */
+  function handleVideoLoading(msg) {
+    const videoUrl = msg.videoUrl;
+    if (!videoUrl) return;
+
+    let video = document.querySelector('video[src="' + CSS.escape(videoUrl) + '"]');
+    if (!video) video = document.querySelector("video");
+    if (!video) return;
+
+    showVideoLoadingOverlay(video, videoUrl);
   }
 
   /**

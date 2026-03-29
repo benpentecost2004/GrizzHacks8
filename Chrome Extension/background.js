@@ -176,6 +176,8 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     analyzeImage(sender.tab.id, msg.srcUrl);
   } else if (msg.type === "found-video" && sender.tab?.id) {
     analyzeVideo(sender.tab.id, msg.videoUrl);
+  } else if (msg.type === "analyze-video-frame" && sender.tab?.id) {
+    analyzeVideoFrame(sender.tab.id, msg);
   }
 });
 
@@ -325,6 +327,34 @@ function formatVideoErrorMessage(err) {
   return "Video analysis failed: " + String(err?.message || err);
 }
 
+/**
+ * Handles blob: URL videos — the content script captured the current
+ * frame and sent it as a data URL. We analyze it as an image and
+ * return the result as a video-result so the overlay updates.
+ */
+async function analyzeVideoFrame(tabId, msg) {
+  const { frameDataUrl, videoUrl } = msg;
+  try {
+    const result = await analyzeImageWithBackend(frameDataUrl);
+    const score = _normalizeConfidence(result.confidence);
+    await chrome.tabs.sendMessage(tabId, {
+      type: "video-result",
+      videoUrl,
+      score,
+      label: result.label || "",
+      reason: result.reasoning || "",
+    });
+  } catch (error) {
+    console.error("[Verity] Video frame analysis failed", { tabId, videoUrl, error });
+    await chrome.tabs.sendMessage(tabId, {
+      type: "video-result",
+      videoUrl,
+      score: 0,
+      reason: formatVideoErrorMessage(error),
+    });
+  }
+}
+
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!tab?.id) return;
 
@@ -337,7 +367,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     await ensureContentScript(tab.id);
     await chrome.tabs.sendMessage(tab.id, { type: "find-image" });
   } else if (info.menuItemId === "verity-analyze-video") {
-    await analyzeVideo(tab.id, info.srcUrl);
+    if (info.srcUrl && info.srcUrl.startsWith("blob:")) {
+      await ensureContentScript(tab.id);
+      await chrome.tabs.sendMessage(tab.id, { type: "find-video" });
+    } else {
+      await analyzeVideo(tab.id, info.srcUrl);
+    }
   } else if (info.menuItemId === "verity-find-video") {
     await ensureContentScript(tab.id);
     await chrome.tabs.sendMessage(tab.id, { type: "find-video" });
