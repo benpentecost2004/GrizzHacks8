@@ -287,6 +287,58 @@
   }
 
   /**
+   * Merges adjacent client rects from a Range so inline links, list markers,
+   * and formatted runs produce one box per line instead of many fragmented slivers.
+   */
+  function mergeSelectionRects(rawRects) {
+    const items = [];
+    for (let i = 0; i < rawRects.length; i++) {
+      const r = rawRects[i];
+      if (r.width < 2 || r.height < 2) continue;
+      items.push({
+        left: r.left,
+        top: r.top,
+        right: r.right,
+        bottom: r.bottom,
+        h: r.height,
+      });
+    }
+    if (!items.length) return [];
+
+    items.sort((a, b) => a.top - b.top || a.left - b.left);
+
+    const yTol = Math.max(3, Math.min(items[0].h * 0.35, 12));
+    const xGap = 12;
+    const merged = [];
+
+    for (const r of items) {
+      const last = merged[merged.length - 1];
+      const verticalOverlap =
+        last &&
+        !(r.bottom < last.top - yTol || r.top > last.bottom + yTol);
+      if (last && verticalOverlap && r.left <= last.right + xGap) {
+        last.right = Math.max(last.right, r.right);
+        last.top = Math.min(last.top, r.top);
+        last.bottom = Math.max(last.bottom, r.bottom);
+      } else {
+        merged.push({
+          left: r.left,
+          top: r.top,
+          right: r.right,
+          bottom: r.bottom,
+        });
+      }
+    }
+
+    return merged.map((m) => ({
+      left: m.left,
+      top: m.top,
+      width: m.right - m.left,
+      height: m.bottom - m.top,
+    }));
+  }
+
+  /**
    * Positions highlight rects, the union hit area, and the hover layer
    * from a saved Range (scroll/resize safe).
    */
@@ -302,12 +354,7 @@
     }
     if (!rects.length) return;
 
-    const list = [];
-    for (let i = 0; i < rects.length; i++) {
-      const r = rects[i];
-      if (r.width < 2 || r.height < 2) continue;
-      list.push(r);
-    }
+    const list = mergeSelectionRects(rects);
     if (!list.length) return;
 
     let minL = Infinity;
@@ -323,14 +370,6 @@
 
     const sy = window.scrollY;
     const sx = window.scrollX;
-
-    const hit = group.querySelector(".aidet-text-pill-hit");
-    if (hit) {
-      hit.style.top = sy + minT + "px";
-      hit.style.left = sx + minL + "px";
-      hit.style.width = maxR - minL + "px";
-      hit.style.height = maxB - minT + "px";
-    }
 
     let bgs = group.querySelectorAll(".aidet-text-pill-bg");
     for (let i = 0; i < list.length; i++) {
@@ -362,6 +401,14 @@
       hover.style.width = maxR - minL + "px";
       hover.style.height = maxB - minT + "px";
     }
+
+    const chip = group.querySelector(".aidet-text-pill-chip");
+    if (chip) {
+      const chipW = 56;
+      chip.style.width = chipW + "px";
+      chip.style.top = sy + maxB + 4 + "px";
+      chip.style.left = sx + Math.max(minL, maxR - chipW) + "px";
+    }
   }
 
   /**
@@ -390,11 +437,6 @@
       group._syncRange = null;
     }
 
-    const hit = document.createElement("div");
-    hit.className = "aidet-text-pill-hit";
-    hit.setAttribute("aria-hidden", "true");
-    group.appendChild(hit);
-
     const hover = document.createElement("div");
     hover.className = "aidet-text-pill-hover";
     hover.setAttribute("data-confidence-level", level);
@@ -406,6 +448,17 @@
       confidenceSubtitle(confidence);
     group.appendChild(hover);
 
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "aidet-text-pill-chip";
+    chip.setAttribute("data-confidence-level", level);
+    chip.setAttribute(
+      "title",
+      confidence + "% — " + confidenceSubtitle(confidence),
+    );
+    chip.textContent = confidence + "%";
+    group.appendChild(chip);
+
     document.body.appendChild(group);
 
     layoutTextPill(group);
@@ -415,7 +468,8 @@
     window.addEventListener("scroll", reposition, { passive: true });
     window.addEventListener("resize", reposition, { passive: true });
 
-    group.addEventListener("click", (e) => {
+    chip.addEventListener("click", (e) => {
+      e.preventDefault();
       e.stopPropagation();
       const spanData = {
         type: "text",
