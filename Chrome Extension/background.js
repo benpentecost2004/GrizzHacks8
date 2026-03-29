@@ -282,6 +282,12 @@ async function analyzeVideoWithBackend(videoUrl) {
 async function analyzeVideo(tabId, videoUrl) {
   console.log("[Verity] Starting video analysis", { tabId, videoUrl });
 
+  if (!videoUrl || videoUrl.startsWith("blob:")) {
+    await ensureContentScript(tabId);
+    await chrome.tabs.sendMessage(tabId, { type: "find-video" });
+    return;
+  }
+
   await ensureContentScript(tabId);
   await chrome.tabs.sendMessage(tabId, {
     type: "video-loading",

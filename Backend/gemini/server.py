@@ -1,6 +1,8 @@
+import base64
 import io
 import json
 import os
+import re
 import tempfile
 from typing import Any, Dict
 
@@ -75,13 +77,20 @@ def analyze_image() -> Any:
         return jsonify({"error": "imageUrl is required."}), 400
 
     try:
-        response = requests.get(image_url, timeout=12)
-        response.raise_for_status()
-        img = _load_image_for_analysis(
-            image_bytes=response.content,
-            image_url=image_url,
-            content_type=response.headers.get("Content-Type", ""),
-        )
+        if image_url.startswith("data:"):
+            match = re.match(r"data:[^;]*;base64,(.+)", image_url, re.DOTALL)
+            if not match:
+                return jsonify({"error": "Invalid data URL format."}), 400
+            image_bytes = base64.b64decode(match.group(1))
+            img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        else:
+            response = requests.get(image_url, timeout=12)
+            response.raise_for_status()
+            img = _load_image_for_analysis(
+                image_bytes=response.content,
+                image_url=image_url,
+                content_type=response.headers.get("Content-Type", ""),
+            )
     except UnidentifiedImageError as exc:
         if image_url.lower().split("?", 1)[0].endswith(".avif") and pillow_heif is None:
             return (
