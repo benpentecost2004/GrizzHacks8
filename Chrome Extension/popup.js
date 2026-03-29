@@ -19,7 +19,7 @@ const historyList = document.getElementById("history-list");
  * Returns the confidence tier for color-coding.
  */
 function levelFor(c) {
-  return c >= 70 ? "high" : c >= 20 ? "medium" : "low";
+  return c >= 80 ? "high" : c >= 50 ? "medium" : "low";
 }
 
 /**
@@ -48,11 +48,11 @@ function renderDetail(entry) {
   scoreNum.textContent = score;
   scoreNum.className = "verity-score-num " + level;
 
-  const label = score >= 70
+  const label = score >= 80
     ? "Likely AI-generated"
-    : score >= 20
+    : score >= 50
       ? "Possibly AI-generated"
-      : "Likely human-written";
+      : "Not AI-generated";
   scoreLabel.textContent = label;
   scoreUrl.textContent = entry.title || entry.url || "";
 
@@ -112,7 +112,7 @@ function renderImageDetail(entry, level) {
     '<div class="verity-image-info">' +
       '<span class="verity-card-conf ' + level + '" style="font-size:14px;padding:4px 10px;">' + score + '%</span>' +
       '<span style="font-size:12px;color:#a6adc8;margin-left:8px;">' +
-        (score >= 70 ? "Likely AI-generated" : score >= 20 ? "Possibly AI-generated" : "Likely real") +
+        (score >= 80 ? "Likely AI-generated" : score >= 50 ? "Possibly AI-generated" : "Not AI-generated") +
       '</span>' +
     '</div>' +
     '<div class="verity-image-reason">' + escapeHtml(entry.reason || entry.fullReason || "") + '</div>';
@@ -142,7 +142,7 @@ function renderVideoDetail(entry, level) {
     '<div class="verity-image-info">' +
       '<span class="verity-card-conf ' + level + '" style="font-size:14px;padding:4px 10px;">' + score + '%</span>' +
       '<span style="font-size:12px;color:#a6adc8;margin-left:8px;">' +
-        (score >= 70 ? "Likely AI-generated" : score >= 20 ? "Possibly AI-generated" : "Likely real") +
+        (score >= 80 ? "Likely AI-generated" : score >= 50 ? "Possibly AI-generated" : "Not AI-generated") +
       '</span>' +
     '</div>' +
     (framesText ? '<div style="font-size:11px;color:#6c7086;padding:0 12px;">' + framesText + '</div>' : '') +

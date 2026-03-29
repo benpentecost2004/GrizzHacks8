@@ -22,20 +22,29 @@
   /**
    * Maps a numeric confidence (0-100) to a tier string used by
    * CSS attribute selectors to apply the correct color scheme.
-   *   "low"    → green  (< 20, likely human)
-   *   "medium" → yellow (20-69, uncertain)
-   *   "high"   → red    (>= 70, likely AI)
+   *   "low"    → green  (< 50, not AI)
+   *   "medium" → yellow (50-79, possibly AI)
+   *   "high"   → red    (>= 80, likely AI)
    */
   function confidenceLevel(confidence) {
-    if (confidence >= 70) return "high";
-    if (confidence >= 20) return "medium";
+    if (confidence >= 80) return "high";
+    if (confidence >= 50) return "medium";
     return "low";
   }
 
   function confidenceLabel(confidence) {
-    if (confidence >= 70) return "Likely AI";
-    if (confidence >= 20) return "Possibly AI";
-    return "Likely real";
+    if (confidence >= 80) return "Likely AI";
+    if (confidence >= 50) return "Possibly AI";
+    return "Not AI";
+  }
+
+  /**
+   * Longer subtitle for the selection hover overlay (matches popup tiers).
+   */
+  function confidenceSubtitle(confidence) {
+    if (confidence >= 80) return "Likely AI-generated";
+    if (confidence >= 50) return "Possibly AI-generated";
+    return "Not AI-generated";
   }
 
   /**
@@ -66,14 +75,16 @@
   }
 
   /**
-   * Finds and wraps all in-node occurrences of span.text.
-   * This scans each text node once and wraps from right-to-left,
-   * which is much faster than re-walking the whole DOM per match.
+   * Finds and wraps all occurrences of span.text in the DOM.
+   * First tries exact single-node matches. If none are found,
+   * falls back to normalized whitespace matching across the
+   * concatenated text of the page body.
    */
   function findAndWrapAll(span) {
     const needle = span.text;
     if (!needle) return;
 
+    let found = false;
     const textNodes = collectTextNodes();
 
     for (const textNode of textNodes) {
@@ -97,6 +108,44 @@
           span.confidence,
           span.reason,
         );
+        found = true;
+      }
+    }
+
+    if (found) return;
+
+    // Fallback: normalize whitespace and try matching a trimmed
+    // version against each text node. Selections that cross element
+    // boundaries produce text with newlines/extra spaces that don't
+    // exist in individual text nodes.
+    const trimmed = needle.replace(/\s+/g, " ").trim();
+    if (!trimmed || trimmed === needle) return;
+
+    const refreshed = collectTextNodes();
+    for (const textNode of refreshed) {
+      const haystack = textNode.nodeValue;
+      if (!haystack) continue;
+      const idx = haystack.indexOf(trimmed);
+      if (idx !== -1) {
+        wrapTextNode(textNode, idx, trimmed, span.confidence, span.reason);
+        return;
+      }
+    }
+
+    // Last resort: try to find the longest leading substring of the
+    // selection that exists in a text node (handles cross-element selections).
+    for (const textNode of refreshed) {
+      const haystack = textNode.nodeValue;
+      if (!haystack) continue;
+
+      const words = trimmed.split(" ");
+      for (let len = words.length; len >= 3; len--) {
+        const partial = words.slice(0, len).join(" ");
+        const idx = haystack.indexOf(partial);
+        if (idx !== -1) {
+          wrapTextNode(textNode, idx, partial, span.confidence, span.reason);
+          return;
+        }
       }
     }
   }
@@ -220,8 +269,164 @@
       activeTextLoader = null;
     }
     if (!msg.spans || !msg.spans.length) return;
-    msg.spans.forEach((span) => findAndWrapAll(span));
+
+    clearTextHighlights();
+
+    const span = msg.spans[0];
+    const savedRange = pendingSelectionRange;
+    pendingSelectionRange = null;
+
+    if (savedRange) {
+      createTextPill(savedRange, span.text, span.confidence, span.reason);
+    } else {
+      document.body.normalize();
+      msg.spans.forEach((s) => findAndWrapAll(s));
+    }
+
     saveResult(msg);
+  }
+
+  /**
+   * Positions highlight rects, the union hit area, and the hover layer
+   * from a saved Range (scroll/resize safe).
+   */
+  function layoutTextPill(group) {
+    const liveRange = group._syncRange;
+    if (!liveRange) return;
+
+    let rects;
+    try {
+      rects = liveRange.getClientRects();
+    } catch {
+      return;
+    }
+    if (!rects.length) return;
+
+    const list = [];
+    for (let i = 0; i < rects.length; i++) {
+      const r = rects[i];
+      if (r.width < 2 || r.height < 2) continue;
+      list.push(r);
+    }
+    if (!list.length) return;
+
+    let minL = Infinity;
+    let minT = Infinity;
+    let maxR = -Infinity;
+    let maxB = -Infinity;
+    for (const r of list) {
+      minL = Math.min(minL, r.left);
+      minT = Math.min(minT, r.top);
+      maxR = Math.max(maxR, r.right);
+      maxB = Math.max(maxB, r.bottom);
+    }
+
+    const sy = window.scrollY;
+    const sx = window.scrollX;
+
+    const hit = group.querySelector(".aidet-text-pill-hit");
+    if (hit) {
+      hit.style.top = sy + minT + "px";
+      hit.style.left = sx + minL + "px";
+      hit.style.width = maxR - minL + "px";
+      hit.style.height = maxB - minT + "px";
+    }
+
+    let bgs = group.querySelectorAll(".aidet-text-pill-bg");
+    for (let i = 0; i < list.length; i++) {
+      const r = list[i];
+      let bg = bgs[i];
+      if (!bg) {
+        bg = document.createElement("div");
+        bg.className = "aidet-text-pill-bg";
+        bg.setAttribute(
+          "data-confidence-level",
+          group.getAttribute("data-confidence-level") || "low",
+        );
+        group.insertBefore(bg, group.querySelector(".aidet-text-pill-hover"));
+      }
+      bg.style.top = sy + r.top + "px";
+      bg.style.left = sx + r.left + "px";
+      bg.style.width = r.width + "px";
+      bg.style.height = r.height + "px";
+    }
+    bgs = group.querySelectorAll(".aidet-text-pill-bg");
+    for (let j = list.length; j < bgs.length; j++) {
+      bgs[j].remove();
+    }
+
+    const hover = group.querySelector(".aidet-text-pill-hover");
+    if (hover) {
+      hover.style.top = sy + minT + "px";
+      hover.style.left = sx + minL + "px";
+      hover.style.width = maxR - minL + "px";
+      hover.style.height = maxB - minT + "px";
+    }
+  }
+
+  /**
+   * Full-color highlight over the selection (one tint per line).
+   * On hover: frosted blur over the whole selection with % + subtitle.
+   */
+  function createTextPill(range, text, confidence, reason) {
+    const level = confidenceLevel(confidence);
+    let rects;
+    try {
+      rects = range.getClientRects();
+    } catch {
+      return;
+    }
+    if (!rects.length) return;
+
+    const group = document.createElement("div");
+    group.className = "aidet-text-pill-group";
+    group.setAttribute("data-confidence", confidence);
+    group.setAttribute("data-confidence-level", level);
+    group.setAttribute("data-reason", reason || "");
+    group.setAttribute("data-text", text || "");
+    try {
+      group._syncRange = range.cloneRange();
+    } catch {
+      group._syncRange = null;
+    }
+
+    const hit = document.createElement("div");
+    hit.className = "aidet-text-pill-hit";
+    hit.setAttribute("aria-hidden", "true");
+    group.appendChild(hit);
+
+    const hover = document.createElement("div");
+    hover.className = "aidet-text-pill-hover";
+    hover.setAttribute("data-confidence-level", level);
+    hover.innerHTML =
+      '<span class="aidet-text-hover-pct"></span>' +
+      '<span class="aidet-text-hover-sub"></span>';
+    hover.querySelector(".aidet-text-hover-pct").textContent = confidence + "%";
+    hover.querySelector(".aidet-text-hover-sub").textContent =
+      confidenceSubtitle(confidence);
+    group.appendChild(hover);
+
+    document.body.appendChild(group);
+
+    layoutTextPill(group);
+
+    const reposition = () => layoutTextPill(group);
+    group._repositionHandler = reposition;
+    window.addEventListener("scroll", reposition, { passive: true });
+    window.addEventListener("resize", reposition, { passive: true });
+
+    group.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const spanData = {
+        type: "text",
+        text: text || "",
+        confidence,
+        reason: reason || "",
+      };
+      chrome.storage.local.set({ "aidet-active-span": spanData }, () => {
+        chrome.runtime.sendMessage({ type: "open-popup" });
+      });
+    });
   }
 
   /**
@@ -380,15 +585,30 @@
    * normalize() to merge adjacent text nodes back together.
    * Also removes any image analysis pill overlays.
    */
-  function clearAllHighlights() {
+  /**
+   * Removes only text highlights, restoring original text nodes.
+   * Does not touch image/video pills.
+   */
+  function clearTextHighlights() {
     removeHighlightOverlay();
-
     document.querySelectorAll(".aidet-highlight").forEach((mark) => {
       const parent = mark.parentNode;
+      if (!parent) return;
       const text = document.createTextNode(mark.textContent);
       parent.replaceChild(text, mark);
       parent.normalize();
     });
+    document.querySelectorAll(".aidet-text-pill-group").forEach((g) => {
+      if (g._repositionHandler) {
+        window.removeEventListener("scroll", g._repositionHandler);
+        window.removeEventListener("resize", g._repositionHandler);
+      }
+      g.remove();
+    });
+  }
+
+  function clearAllHighlights() {
+    clearTextHighlights();
 
     document.querySelectorAll(".aidet-image-pill").forEach((pill) => {
       window.removeEventListener("scroll", pill._repositionHandler);
@@ -410,34 +630,9 @@
     });
   }
 
-  document.addEventListener("mouseover", (e) => {
-    const highlight = e.target.closest(".aidet-highlight");
-    if (highlight) showHighlightOverlay(highlight);
-  });
-
-  document.addEventListener("mouseout", (e) => {
-    const fromHighlight = e.target.closest(".aidet-highlight");
-    if (!fromHighlight) return;
-
-    const toHighlight =
-      e.relatedTarget && e.relatedTarget.closest
-        ? e.relatedTarget.closest(".aidet-highlight")
-        : null;
-
-    if (toHighlight) {
-      showHighlightOverlay(toHighlight);
-    } else {
-      removeHighlightOverlay();
-    }
-  });
-
-  /**
-   * When a highlight or image wrap is clicked, store which item was
-   * clicked and ask the background to open the badge popup.
-   * Clicking anywhere else dismisses all highlights.
-   */
   document.addEventListener("click", (e) => {
     const highlight = e.target.closest(".aidet-highlight");
+    const textPill = e.target.closest(".aidet-text-pill-group");
     const imagePill = e.target.closest(".aidet-image-pill");
 
     if (highlight) {
@@ -450,6 +645,8 @@
       chrome.storage.local.set({ "aidet-active-span": spanData }, () => {
         chrome.runtime.sendMessage({ type: "open-popup" });
       });
+    } else if (textPill) {
+      return;
     } else if (imagePill) {
       const mediaType = imagePill.getAttribute("data-media-type") || "image";
       const pillData = {
@@ -467,11 +664,13 @@
   });
 
   let activeTextLoader = null;
+  let pendingSelectionRange = null;
 
   /**
    * Captures the current text selection, shows a loading pill
    * over the selection, and sends the text to the background
-   * script for Gemini analysis via the backend API.
+   * script for Gemini analysis via the backend API. Saves the
+   * Range so handleTextResult can highlight across inline elements.
    */
   function analyzeSelection() {
     const sel = window.getSelection();
@@ -480,8 +679,8 @@
     const text = sel.toString();
     if (!text.trim()) return;
 
-    const range = sel.getRangeAt(0);
-    const rect = range.getBoundingClientRect();
+    pendingSelectionRange = sel.getRangeAt(0).cloneRange();
+    const rect = pendingSelectionRange.getBoundingClientRect();
 
     sel.removeAllRanges();
 
