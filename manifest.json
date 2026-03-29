@@ -1,0 +1,21 @@
+{
+  "name": "Verity - AI Content Detector",
+  "description": "Detect AI-generated text and images",
+  "version": "0.1",
+  "manifest_version": 3,
+  "permissions": ["activeTab", "storage", "contextMenus", "scripting"],
+  "host_permissions": ["http://127.0.0.1:8000/*", "http://localhost:8000/*"],
+  "background": {
+    "service_worker": "Chrome Extension/background.js"
+  },
+  "action": {
+    "default_popup": "Chrome Extension/popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["Chrome Extension/content.js"],
+      "css": ["Chrome Extension/styles/content.css"]
+    }
+  ]
+}

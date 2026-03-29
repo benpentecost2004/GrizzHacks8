@@ -1,4 +1,5 @@
 import json
+import os
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from PIL import Image
@@ -7,7 +8,12 @@ from google.genai import types
 
 load_dotenv()
 
-client = genai.Client()
+# Get API key from environment
+api_key = os.getenv('GOOGLE_API_KEY')
+if not api_key:
+    raise ValueError('GOOGLE_API_KEY not found in environment. Please set it in a .env file.')
+
+client = genai.Client(api_key=api_key)
 
 try:
     with open('prompts.json', 'r') as file:
