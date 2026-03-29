@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="styles/popup.css">
+</head>
+<body>
+
+  <div class="verity-header">
+    <h1>Verity</h1>
+    <button id="btn-clear">Clear history</button>
+  </div>
+
+  <div id="verity-empty" class="verity-empty">
+    <div class="empty-icon">?</div>
+    Select text on any page, right-click,<br>
+    and choose "Analyze with Verity"
+  </div>
+
+  <div id="verity-detail" hidden>
+    <div class="verity-score">
+      <span id="score-num" class="verity-score-num"></span>
+      <div class="verity-score-label">
+        <strong id="score-label"></strong>
+        <span id="score-url"></span>
+      </div>
+    </div>
+    <div id="verity-cards" class="verity-cards"></div>
+  </div>
+
+  <div id="verity-history" class="verity-history">
+    <button class="verity-history-toggle" id="history-toggle">
+      <span>Scan History</span>
+      <span class="arrow">&#9654;</span>
+    </button>
+    <ul id="history-list" class="verity-history-list"></ul>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

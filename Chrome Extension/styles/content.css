@@ -70,3 +70,86 @@
   background-color: #7f0000;
   color: #FFCDD2;
 }
+
+/* ── Loading animation: smooth shimmer ── */
+
+@keyframes aidet-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes aidet-pulse-glow {
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+
+.aidet-loading-pill {
+  position: absolute;
+  z-index: 999999;
+  background: linear-gradient(
+    110deg,
+    rgba(255,255,255,0.08) 0%,
+    rgba(255,255,255,0.22) 40%,
+    rgba(255,255,255,0.08) 60%
+  );
+  background-size: 200% 100%;
+  background-color: rgba(0,0,0,0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  pointer-events: none;
+  animation: aidet-shimmer 1.8s ease-in-out infinite;
+}
+
+.aidet-image-pill.aidet-loading {
+  min-width: 56px;
+  color: transparent;
+  background: linear-gradient(
+    110deg,
+    rgba(255,255,255,0.08) 0%,
+    rgba(255,255,255,0.22) 40%,
+    rgba(255,255,255,0.08) 60%
+  );
+  background-size: 200% 100%;
+  background-color: rgba(0,0,0,0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  animation: aidet-shimmer 1.8s ease-in-out infinite;
+}
+
+/* ── Image analysis: floating pill overlay ── */
+
+.aidet-image-pill {
+  position: absolute;
+  z-index: 999999;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: system-ui, -apple-system, sans-serif;
+  padding: 4px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  pointer-events: auto;
+}
+
+.aidet-image-pill:hover {
+  transform: scale(1.08);
+  box-shadow: 0 3px 12px rgba(0,0,0,0.4);
+}
+
+.aidet-image-pill[data-confidence-level="low"] {
+  background-color: #C8E6C9;
+  color: #1b5e20;
+}
+
+.aidet-image-pill[data-confidence-level="medium"] {
+  background-color: #FFF176;
+  color: #5c4a00;
+}
+
+.aidet-image-pill[data-confidence-level="high"] {
+  background-color: #FFCDD2;
+  color: #7f0000;
+}

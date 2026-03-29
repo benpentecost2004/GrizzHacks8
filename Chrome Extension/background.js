@@ -1,46 +1,81 @@
-chrome.contextMenus.create({
-  id: "verity-analyze",
-  title: "Analyze with Verity",
-  contexts: ["selection"],
-});
+/**
+ * background.js — Verity AI Content Detector (service worker)
+ *
+ * TEMPORARY testing stub. Creates a right-click context menu item
+ * "Analyze with Verity" that appears when text is selected. On click,
+ * it tells the content script to capture the selection and run a
+ * test analysis with random confidence scores.
+ *
+ * In production, this file will be owned by the backend team and will
+ * call the Gemini API instead of generating random values.
+ */
 
-chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId !== "verity-analyze" || !info.selectionText) return;
-
-  const text = info.selectionText;
-  const spans = generateTestSpans(text);
-
-  chrome.tabs.sendMessage(tab.id, {
-    type: "text-result",
-    spans,
-    overallScore: Math.round(spans.reduce((s, x) => s + x.confidence, 0) / spans.length),
-    fullReason: "Test analysis of selected text.",
+// Register the context menu item on extension install/update
+chrome.runtime.onInstalled.addListener(async () => {
+  await chrome.contextMenus.removeAll();
+  chrome.contextMenus.create({
+    id: "verity-analyze-text",
+    title: "Analyze text with Verity",
+    contexts: ["selection"],
+  });
+  chrome.contextMenus.create({
+    id: "verity-analyze-image",
+    title: "Analyze image with Verity",
+    contexts: ["image"],
   });
 });
 
-function generateTestSpans(text) {
-  const words = text.split(/\s+/).filter(Boolean);
-  if (words.length === 0) return [];
+/**
+ * Open the badge popup when a highlight is clicked on the page.
+ */
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === "open-popup") {
+    chrome.action.openPopup().catch(() => {});
+  }
+});
 
-  const spans = [];
-  let i = 0;
+/**
+ * When the context menu item is clicked, send a trigger to the
+ * content script to capture the selection and run analysis.
+ * Silently injects the content script if it isn't loaded yet
+ * (e.g. tabs open before the extension was installed/reloaded).
+ */
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (!tab?.id) return;
 
-  while (i < words.length) {
-    const chunkSize = Math.min(
-      Math.floor(Math.random() * 5) + 2,
-      words.length - i
-    );
-    const chunk = words.slice(i, i + chunkSize).join(" ");
-    const confidence = Math.floor(Math.random() * 100);
-
-    spans.push({
-      text: chunk,
-      confidence,
-      reason: "Test — " + confidence + "% confidence this chunk is AI-generated.",
-    });
-
-    i += chunkSize;
+  async function ensureContentScript() {
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: "ping" });
+    } catch {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["content.js"],
+      });
+      await chrome.scripting.insertCSS({
+        target: { tabId: tab.id },
+        files: ["styles/content.css"],
+      });
+    }
   }
 
-  return spans;
-}
+  if (info.menuItemId === "verity-analyze-text") {
+    await ensureContentScript();
+    await chrome.tabs.sendMessage(tab.id, { type: "analyze-selection" });
+  } else if (info.menuItemId === "verity-analyze-image") {
+    await ensureContentScript();
+    await chrome.tabs.sendMessage(tab.id, {
+      type: "image-loading",
+      srcUrl: info.srcUrl,
+    });
+
+    setTimeout(async () => {
+      const score = Math.floor(Math.random() * 100);
+      await chrome.tabs.sendMessage(tab.id, {
+        type: "image-result",
+        srcUrl: info.srcUrl,
+        score,
+        reason: "Test — " + score + "% confidence this image is AI-generated.",
+      });
+    }, 1500);
+  }
+});
