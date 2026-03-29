@@ -264,8 +264,82 @@
     clearTextHighlights();
     document.body.normalize();
 
-    msg.spans.forEach((span) => findAndWrapAll(span));
+    const span = msg.spans[0];
+    const savedRange = pendingSelectionRange;
+    pendingSelectionRange = null;
+
+    if (savedRange) {
+      highlightRange(savedRange, span.confidence, span.reason);
+    } else {
+      msg.spans.forEach((s) => findAndWrapAll(s));
+    }
+
     saveResult(msg);
+  }
+
+  /**
+   * Highlights all text nodes within a saved Range by wrapping
+   * each one (or partial boundary nodes) in <mark> elements.
+   * Handles selections that cross <a>, <strong>, <em>, etc.
+   */
+  function highlightRange(range, confidence, reason) {
+    const level = confidenceLevel(confidence);
+
+    const textNodes = [];
+    const walker = document.createTreeWalker(
+      range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+        ? range.commonAncestorContainer.parentNode
+        : range.commonAncestorContainer,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode(node) {
+          if (!node.nodeValue || !node.nodeValue.trim()) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          if (range.intersectsNode(node)) return NodeFilter.FILTER_ACCEPT;
+          return NodeFilter.FILTER_REJECT;
+        },
+      },
+    );
+
+    let n;
+    while ((n = walker.nextNode())) textNodes.push(n);
+
+    if (!textNodes.length) return;
+
+    for (let i = textNodes.length - 1; i >= 0; i--) {
+      const tNode = textNodes[i];
+      const isFirst = i === 0;
+      const isLast = i === textNodes.length - 1;
+
+      let startOff = 0;
+      let endOff = tNode.nodeValue.length;
+
+      if (isFirst && tNode === range.startContainer) {
+        startOff = range.startOffset;
+      }
+      if (isLast && tNode === range.endContainer) {
+        endOff = range.endOffset;
+      }
+
+      if (startOff >= endOff) continue;
+
+      const before = startOff > 0 ? tNode.splitText(startOff) : tNode;
+      const matchLen = endOff - startOff;
+      if (before.nodeValue.length > matchLen) {
+        before.splitText(matchLen);
+      }
+
+      const mark = document.createElement("mark");
+      mark.className = "aidet-highlight";
+      mark.setAttribute("data-confidence", confidence);
+      mark.setAttribute("data-confidence-level", level);
+      mark.setAttribute("data-reason", reason || "");
+      mark.setAttribute(PROCESSED_ATTR, "true");
+      mark.textContent = before.nodeValue;
+
+      before.parentNode.replaceChild(mark, before);
+    }
   }
 
   /**
@@ -519,11 +593,13 @@
   });
 
   let activeTextLoader = null;
+  let pendingSelectionRange = null;
 
   /**
    * Captures the current text selection, shows a loading pill
    * over the selection, and sends the text to the background
-   * script for Gemini analysis via the backend API.
+   * script for Gemini analysis via the backend API. Saves the
+   * Range so handleTextResult can highlight across inline elements.
    */
   function analyzeSelection() {
     const sel = window.getSelection();
@@ -532,8 +608,8 @@
     const text = sel.toString();
     if (!text.trim()) return;
 
-    const range = sel.getRangeAt(0);
-    const rect = range.getBoundingClientRect();
+    pendingSelectionRange = sel.getRangeAt(0).cloneRange();
+    const rect = pendingSelectionRange.getBoundingClientRect();
 
     sel.removeAllRanges();
 
