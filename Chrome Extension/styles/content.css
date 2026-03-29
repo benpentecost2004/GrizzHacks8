@@ -43,8 +43,9 @@
   cursor: pointer;
 }
 
+/* fixed + viewport coords so the overlay covers the full selection (no shrunken box) */
 .aidet-text-pill-bg {
-  position: absolute;
+  position: fixed;
   z-index: 999998;
   border-radius: 2px;
   pointer-events: auto;
@@ -96,22 +97,27 @@
 }
 
 .aidet-text-pill-hover {
-  position: absolute;
+  position: fixed;
   z-index: 999999;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 8px 12px;
-  border-radius: 8px;
+  gap: 6px;
+  padding: 12px 16px;
+  box-sizing: border-box;
+  /* stretch to explicit inline width/height (entire selection union) */
+  min-width: 0;
+  min-height: 0;
+  border-radius: 6px;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s ease;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
   font-family: system-ui, -apple-system, sans-serif;
+  overflow: hidden;
 }
 
 /* Hover highlight, stats panel, or chip: blur + confidence % + subtitle */
@@ -123,7 +129,7 @@
 }
 
 .aidet-text-pill-chip {
-  position: absolute;
+  position: fixed;
   z-index: 1000000;
   min-width: 52px;
   padding: 3px 8px;
@@ -160,17 +166,18 @@
 }
 
 .aidet-text-hover-pct {
-  font-size: 15px;
+  font-size: clamp(18px, 5.5vmin, 42px);
   font-weight: 800;
-  line-height: 1.2;
+  line-height: 1.15;
+  text-align: center;
 }
 
 .aidet-text-hover-sub {
-  font-size: 11px;
+  font-size: clamp(11px, 1.8vmin, 16px);
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.25;
   text-align: center;
-  max-width: 220px;
+  max-width: 90%;
   opacity: 0.95;
 }
 

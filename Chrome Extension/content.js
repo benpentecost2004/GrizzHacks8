@@ -362,14 +362,13 @@
     let maxR = -Infinity;
     let maxB = -Infinity;
     for (const r of list) {
+      const right = r.left + r.width;
+      const bottom = r.top + r.height;
       minL = Math.min(minL, r.left);
       minT = Math.min(minT, r.top);
-      maxR = Math.max(maxR, r.right);
-      maxB = Math.max(maxB, r.bottom);
+      maxR = Math.max(maxR, right);
+      maxB = Math.max(maxB, bottom);
     }
-
-    const sy = window.scrollY;
-    const sx = window.scrollX;
 
     let bgs = group.querySelectorAll(".aidet-text-pill-bg");
     for (let i = 0; i < list.length; i++) {
@@ -384,8 +383,8 @@
         );
         group.insertBefore(bg, group.querySelector(".aidet-text-pill-hover"));
       }
-      bg.style.top = sy + r.top + "px";
-      bg.style.left = sx + r.left + "px";
+      bg.style.top = r.top + "px";
+      bg.style.left = r.left + "px";
       bg.style.width = r.width + "px";
       bg.style.height = r.height + "px";
     }
@@ -396,18 +395,20 @@
 
     const hover = group.querySelector(".aidet-text-pill-hover");
     if (hover) {
-      hover.style.top = sy + minT + "px";
-      hover.style.left = sx + minL + "px";
-      hover.style.width = maxR - minL + "px";
-      hover.style.height = maxB - minT + "px";
+      const w = Math.max(0, maxR - minL);
+      const h = Math.max(0, maxB - minT);
+      hover.style.top = minT + "px";
+      hover.style.left = minL + "px";
+      hover.style.width = w + "px";
+      hover.style.height = h + "px";
     }
 
     const chip = group.querySelector(".aidet-text-pill-chip");
     if (chip) {
       const chipW = 56;
       chip.style.width = chipW + "px";
-      chip.style.top = sy + maxB + 4 + "px";
-      chip.style.left = sx + Math.max(minL, maxR - chipW) + "px";
+      chip.style.top = maxB + 4 + "px";
+      chip.style.left = Math.max(minL, maxR - chipW) + "px";
     }
   }
 
