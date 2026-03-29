@@ -4,4 +4,7 @@ venv/
 #env
 .env
 
+#prompts
+backend/gemini/prompts.json
+
 .DS_Store
