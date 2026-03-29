@@ -36,70 +36,95 @@
 
 /* ── Text pill: single overlay per selection ── */
 
+/* Selection highlight: full tint per line + one hover overlay for whole block */
+
 .aidet-text-pill-group {
-  pointer-events: auto;
+  pointer-events: none;
   cursor: pointer;
+}
+
+/* Union hit target (invisible) — keeps hover active between lines */
+.aidet-text-pill-hit {
+  position: absolute;
+  z-index: 999997;
+  background: transparent;
+  pointer-events: auto;
 }
 
 .aidet-text-pill-bg {
   position: absolute;
   z-index: 999998;
-  border-radius: 4px;
+  border-radius: 3px;
   pointer-events: auto;
-  cursor: pointer;
-  transition: filter 0.15s ease;
-}
-
-.aidet-text-pill-bg:hover {
-  filter: brightness(0.92);
+  box-sizing: border-box;
 }
 
 .aidet-text-pill-bg[data-confidence-level="low"] {
-  background-color: rgba(200, 230, 201, 0.55);
+  background-color: rgba(200, 230, 201, 0.92);
   box-shadow: 0 0 0 1px #43a047;
 }
 
 .aidet-text-pill-bg[data-confidence-level="medium"] {
-  background-color: rgba(255, 241, 118, 0.5);
+  background-color: rgba(255, 241, 118, 0.88);
   box-shadow: 0 0 0 1px #f9a825;
 }
 
 .aidet-text-pill-bg[data-confidence-level="high"] {
-  background-color: rgba(255, 205, 210, 0.55);
+  background-color: rgba(255, 205, 210, 0.92);
   box-shadow: 0 0 0 1px #e53935;
 }
 
-.aidet-text-pill-badge {
+.aidet-text-pill-hover {
   position: absolute;
   z-index: 999999;
-  font-size: 12px;
-  font-weight: 700;
-  font-family: system-ui, -apple-system, sans-serif;
-  padding: 3px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 12px;
   border-radius: 8px;
-  white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.aidet-text-pill-group:has(:hover) .aidet-text-pill-hover {
+  opacity: 1;
   pointer-events: auto;
-  cursor: pointer;
-  transition: transform 0.15s ease;
 }
 
-.aidet-text-pill-badge:hover {
-  transform: scale(1.06);
+.aidet-text-hover-pct {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.2;
 }
 
-.aidet-text-pill-badge[data-confidence-level="low"] {
-  background-color: #1b5e20;
+.aidet-text-hover-sub {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  max-width: 220px;
+  opacity: 0.95;
+}
+
+.aidet-text-pill-hover[data-confidence-level="low"] {
+  background-color: rgba(27, 94, 32, 0.88);
   color: #c8e6c9;
 }
 
-.aidet-text-pill-badge[data-confidence-level="medium"] {
-  background-color: #5c4a00;
+.aidet-text-pill-hover[data-confidence-level="medium"] {
+  background-color: rgba(92, 74, 0, 0.88);
   color: #fff176;
 }
 
-.aidet-text-pill-badge[data-confidence-level="high"] {
-  background-color: #7f0000;
+.aidet-text-pill-hover[data-confidence-level="high"] {
+  background-color: rgba(127, 0, 0, 0.88);
   color: #ffcdd2;
 }
 

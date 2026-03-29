@@ -39,6 +39,15 @@
   }
 
   /**
+   * Longer subtitle for the selection hover overlay (matches popup tiers).
+   */
+  function confidenceSubtitle(confidence) {
+    if (confidence >= 80) return "Likely AI-generated";
+    if (confidence >= 50) return "Possibly AI-generated";
+    return "Not AI-generated";
+  }
+
+  /**
    * Returns eligible text nodes for text highlighting.
    * Skips text inside existing highlights and extension UI.
    */
@@ -278,13 +287,95 @@
   }
 
   /**
-   * Creates a single pill overlay covering the selection area.
-   * Uses getClientRects() to handle multi-line selections —
-   * one background rect per line, one score badge for the group.
+   * Positions highlight rects, the union hit area, and the hover layer
+   * from a saved Range (scroll/resize safe).
+   */
+  function layoutTextPill(group) {
+    const liveRange = group._syncRange;
+    if (!liveRange) return;
+
+    let rects;
+    try {
+      rects = liveRange.getClientRects();
+    } catch {
+      return;
+    }
+    if (!rects.length) return;
+
+    const list = [];
+    for (let i = 0; i < rects.length; i++) {
+      const r = rects[i];
+      if (r.width < 2 || r.height < 2) continue;
+      list.push(r);
+    }
+    if (!list.length) return;
+
+    let minL = Infinity;
+    let minT = Infinity;
+    let maxR = -Infinity;
+    let maxB = -Infinity;
+    for (const r of list) {
+      minL = Math.min(minL, r.left);
+      minT = Math.min(minT, r.top);
+      maxR = Math.max(maxR, r.right);
+      maxB = Math.max(maxB, r.bottom);
+    }
+
+    const sy = window.scrollY;
+    const sx = window.scrollX;
+
+    const hit = group.querySelector(".aidet-text-pill-hit");
+    if (hit) {
+      hit.style.top = sy + minT + "px";
+      hit.style.left = sx + minL + "px";
+      hit.style.width = maxR - minL + "px";
+      hit.style.height = maxB - minT + "px";
+    }
+
+    let bgs = group.querySelectorAll(".aidet-text-pill-bg");
+    for (let i = 0; i < list.length; i++) {
+      const r = list[i];
+      let bg = bgs[i];
+      if (!bg) {
+        bg = document.createElement("div");
+        bg.className = "aidet-text-pill-bg";
+        bg.setAttribute(
+          "data-confidence-level",
+          group.getAttribute("data-confidence-level") || "low",
+        );
+        group.insertBefore(bg, group.querySelector(".aidet-text-pill-hover"));
+      }
+      bg.style.top = sy + r.top + "px";
+      bg.style.left = sx + r.left + "px";
+      bg.style.width = r.width + "px";
+      bg.style.height = r.height + "px";
+    }
+    bgs = group.querySelectorAll(".aidet-text-pill-bg");
+    for (let j = list.length; j < bgs.length; j++) {
+      bgs[j].remove();
+    }
+
+    const hover = group.querySelector(".aidet-text-pill-hover");
+    if (hover) {
+      hover.style.top = sy + minT + "px";
+      hover.style.left = sx + minL + "px";
+      hover.style.width = maxR - minL + "px";
+      hover.style.height = maxB - minT + "px";
+    }
+  }
+
+  /**
+   * Full-color highlight over the selection (one tint per line).
+   * On hover: frosted blur over the whole selection with % + subtitle.
    */
   function createTextPill(range, text, confidence, reason) {
     const level = confidenceLevel(confidence);
-    const rects = range.getClientRects();
+    let rects;
+    try {
+      rects = range.getClientRects();
+    } catch {
+      return;
+    }
     if (!rects.length) return;
 
     const group = document.createElement("div");
@@ -293,30 +384,36 @@
     group.setAttribute("data-confidence-level", level);
     group.setAttribute("data-reason", reason || "");
     group.setAttribute("data-text", text || "");
-    document.body.appendChild(group);
-
-    for (let i = 0; i < rects.length; i++) {
-      const r = rects[i];
-      if (r.width < 2 || r.height < 2) continue;
-
-      const bg = document.createElement("div");
-      bg.className = "aidet-text-pill-bg";
-      bg.setAttribute("data-confidence-level", level);
-      bg.style.top = (window.scrollY + r.top) + "px";
-      bg.style.left = (window.scrollX + r.left) + "px";
-      bg.style.width = r.width + "px";
-      bg.style.height = r.height + "px";
-      group.appendChild(bg);
+    try {
+      group._syncRange = range.cloneRange();
+    } catch {
+      group._syncRange = null;
     }
 
-    const lastRect = rects[rects.length - 1];
-    const badge = document.createElement("div");
-    badge.className = "aidet-text-pill-badge";
-    badge.setAttribute("data-confidence-level", level);
-    badge.textContent = confidence + "% " + confidenceLabel(confidence);
-    badge.style.top = (window.scrollY + lastRect.bottom + 4) + "px";
-    badge.style.left = (window.scrollX + lastRect.left) + "px";
-    group.appendChild(badge);
+    const hit = document.createElement("div");
+    hit.className = "aidet-text-pill-hit";
+    hit.setAttribute("aria-hidden", "true");
+    group.appendChild(hit);
+
+    const hover = document.createElement("div");
+    hover.className = "aidet-text-pill-hover";
+    hover.setAttribute("data-confidence-level", level);
+    hover.innerHTML =
+      '<span class="aidet-text-hover-pct"></span>' +
+      '<span class="aidet-text-hover-sub"></span>';
+    hover.querySelector(".aidet-text-hover-pct").textContent = confidence + "%";
+    hover.querySelector(".aidet-text-hover-sub").textContent =
+      confidenceSubtitle(confidence);
+    group.appendChild(hover);
+
+    document.body.appendChild(group);
+
+    layoutTextPill(group);
+
+    const reposition = () => layoutTextPill(group);
+    group._repositionHandler = reposition;
+    window.addEventListener("scroll", reposition, { passive: true });
+    window.addEventListener("resize", reposition, { passive: true });
 
     group.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -501,7 +598,13 @@
       parent.replaceChild(text, mark);
       parent.normalize();
     });
-    document.querySelectorAll(".aidet-text-pill-group").forEach((g) => g.remove());
+    document.querySelectorAll(".aidet-text-pill-group").forEach((g) => {
+      if (g._repositionHandler) {
+        window.removeEventListener("scroll", g._repositionHandler);
+        window.removeEventListener("resize", g._repositionHandler);
+      }
+      g.remove();
+    });
   }
 
   function clearAllHighlights() {
