@@ -149,6 +149,16 @@ chrome.runtime.onInstalled.addListener(async () => {
     title: "Analyze nearby image with Verity",
     contexts: ["page", "frame", "link"],
   });
+  chrome.contextMenus.create({
+    id: "verity-analyze-video",
+    title: "Analyze video with Verity",
+    contexts: ["video"],
+  });
+  chrome.contextMenus.create({
+    id: "verity-find-video",
+    title: "Analyze nearby video with Verity",
+    contexts: ["page", "frame", "link"],
+  });
 });
 
 /**
@@ -162,6 +172,8 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     chrome.action.openPopup().catch(() => {});
   } else if (msg.type === "found-image" && sender.tab?.id) {
     analyzeImage(sender.tab.id, msg.srcUrl);
+  } else if (msg.type === "analyze-frame" && sender.tab?.id) {
+    analyzeVideoFrame(sender.tab.id, msg);
   }
 });
 
@@ -228,6 +240,37 @@ async function analyzeImage(tabId, srcUrl) {
   }
 }
 
+/**
+ * Analyzes a single video frame (sent as a base64 data URL from
+ * the content script). Sends the frame to the image analysis
+ * backend, then forwards the per-frame result back to the content script.
+ */
+async function analyzeVideoFrame(tabId, msg) {
+  const { frameDataUrl, frameIndex, totalFrames, videoSrc } = msg;
+
+  try {
+    const result = await analyzeImageWithBackend(frameDataUrl);
+
+    await chrome.tabs.sendMessage(tabId, {
+      type: "video-frame-result",
+      videoSrc,
+      frameIndex,
+      totalFrames,
+      score: result.confidence ?? 0,
+      reason: result.reasoning || "",
+    });
+  } catch (error) {
+    await chrome.tabs.sendMessage(tabId, {
+      type: "video-frame-result",
+      videoSrc,
+      frameIndex,
+      totalFrames,
+      score: 0,
+      reason: "Frame analysis failed.",
+    });
+  }
+}
+
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!tab?.id) return;
 
@@ -239,5 +282,14 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   } else if (info.menuItemId === "verity-find-image") {
     await ensureContentScript(tab.id);
     await chrome.tabs.sendMessage(tab.id, { type: "find-image" });
+  } else if (info.menuItemId === "verity-analyze-video") {
+    await ensureContentScript(tab.id);
+    await chrome.tabs.sendMessage(tab.id, {
+      type: "analyze-video",
+      srcUrl: info.srcUrl,
+    });
+  } else if (info.menuItemId === "verity-find-video") {
+    await ensureContentScript(tab.id);
+    await chrome.tabs.sendMessage(tab.id, { type: "find-video" });
   }
 });
