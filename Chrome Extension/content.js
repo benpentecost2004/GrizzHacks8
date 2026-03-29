@@ -262,15 +262,15 @@
     if (!msg.spans || !msg.spans.length) return;
 
     clearTextHighlights();
-    document.body.normalize();
 
     const span = msg.spans[0];
     const savedRange = pendingSelectionRange;
     pendingSelectionRange = null;
 
     if (savedRange) {
-      highlightRange(savedRange, span.confidence, span.reason);
+      createTextPill(savedRange, span.text, span.confidence, span.reason);
     } else {
+      document.body.normalize();
       msg.spans.forEach((s) => findAndWrapAll(s));
     }
 
@@ -278,68 +278,58 @@
   }
 
   /**
-   * Highlights all text nodes within a saved Range by wrapping
-   * each one (or partial boundary nodes) in <mark> elements.
-   * Handles selections that cross <a>, <strong>, <em>, etc.
+   * Creates a single pill overlay covering the selection area.
+   * Uses getClientRects() to handle multi-line selections —
+   * one background rect per line, one score badge for the group.
    */
-  function highlightRange(range, confidence, reason) {
+  function createTextPill(range, text, confidence, reason) {
     const level = confidenceLevel(confidence);
+    const rects = range.getClientRects();
+    if (!rects.length) return;
 
-    const textNodes = [];
-    const walker = document.createTreeWalker(
-      range.commonAncestorContainer.nodeType === Node.TEXT_NODE
-        ? range.commonAncestorContainer.parentNode
-        : range.commonAncestorContainer,
-      NodeFilter.SHOW_TEXT,
-      {
-        acceptNode(node) {
-          if (!node.nodeValue || !node.nodeValue.trim()) {
-            return NodeFilter.FILTER_REJECT;
-          }
-          if (range.intersectsNode(node)) return NodeFilter.FILTER_ACCEPT;
-          return NodeFilter.FILTER_REJECT;
-        },
-      },
-    );
+    const group = document.createElement("div");
+    group.className = "aidet-text-pill-group";
+    group.setAttribute("data-confidence", confidence);
+    group.setAttribute("data-confidence-level", level);
+    group.setAttribute("data-reason", reason || "");
+    group.setAttribute("data-text", text || "");
+    document.body.appendChild(group);
 
-    let n;
-    while ((n = walker.nextNode())) textNodes.push(n);
+    for (let i = 0; i < rects.length; i++) {
+      const r = rects[i];
+      if (r.width < 2 || r.height < 2) continue;
 
-    if (!textNodes.length) return;
-
-    for (let i = textNodes.length - 1; i >= 0; i--) {
-      const tNode = textNodes[i];
-      const isFirst = i === 0;
-      const isLast = i === textNodes.length - 1;
-
-      let startOff = 0;
-      let endOff = tNode.nodeValue.length;
-
-      if (isFirst && tNode === range.startContainer) {
-        startOff = range.startOffset;
-      }
-      if (isLast && tNode === range.endContainer) {
-        endOff = range.endOffset;
-      }
-
-      if (startOff >= endOff) continue;
-
-      const before = startOff > 0 ? tNode.splitText(startOff) : tNode;
-      const matchLen = endOff - startOff;
-      if (before.nodeValue.length > matchLen) {
-        before.splitText(matchLen);
-      }
-
-      const mark = document.createElement("mark");
-      mark.className = "aidet-highlight";
-      mark.setAttribute("data-confidence", confidence);
-      mark.setAttribute("data-confidence-level", level);
-      mark.setAttribute("data-reason", reason || "");
-      mark.setAttribute(PROCESSED_ATTR, "true");
-      mark.textContent = before.nodeValue;
-
-      before.parentNode.replaceChild(mark, before);
+      const bg = document.createElement("div");
+      bg.className = "aidet-text-pill-bg";
+      bg.setAttribute("data-confidence-level", level);
+      bg.style.top = (window.scrollY + r.top) + "px";
+      bg.style.left = (window.scrollX + r.left) + "px";
+      bg.style.width = r.width + "px";
+      bg.style.height = r.height + "px";
+      group.appendChild(bg);
     }
+
+    const lastRect = rects[rects.length - 1];
+    const badge = document.createElement("div");
+    badge.className = "aidet-text-pill-badge";
+    badge.setAttribute("data-confidence-level", level);
+    badge.textContent = confidence + "% " + confidenceLabel(confidence);
+    badge.style.top = (window.scrollY + lastRect.bottom + 4) + "px";
+    badge.style.left = (window.scrollX + lastRect.left) + "px";
+    group.appendChild(badge);
+
+    group.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const spanData = {
+        type: "text",
+        text: text || "",
+        confidence,
+        reason: reason || "",
+      };
+      chrome.storage.local.set({ "aidet-active-span": spanData }, () => {
+        chrome.runtime.sendMessage({ type: "open-popup" });
+      });
+    });
   }
 
   /**
@@ -511,6 +501,7 @@
       parent.replaceChild(text, mark);
       parent.normalize();
     });
+    document.querySelectorAll(".aidet-text-pill-group").forEach((g) => g.remove());
   }
 
   function clearAllHighlights() {
@@ -536,34 +527,9 @@
     });
   }
 
-  document.addEventListener("mouseover", (e) => {
-    const highlight = e.target.closest(".aidet-highlight");
-    if (highlight) showHighlightOverlay(highlight);
-  });
-
-  document.addEventListener("mouseout", (e) => {
-    const fromHighlight = e.target.closest(".aidet-highlight");
-    if (!fromHighlight) return;
-
-    const toHighlight =
-      e.relatedTarget && e.relatedTarget.closest
-        ? e.relatedTarget.closest(".aidet-highlight")
-        : null;
-
-    if (toHighlight) {
-      showHighlightOverlay(toHighlight);
-    } else {
-      removeHighlightOverlay();
-    }
-  });
-
-  /**
-   * When a highlight or image wrap is clicked, store which item was
-   * clicked and ask the background to open the badge popup.
-   * Clicking anywhere else dismisses all highlights.
-   */
   document.addEventListener("click", (e) => {
     const highlight = e.target.closest(".aidet-highlight");
+    const textPill = e.target.closest(".aidet-text-pill-group");
     const imagePill = e.target.closest(".aidet-image-pill");
 
     if (highlight) {
@@ -576,6 +542,8 @@
       chrome.storage.local.set({ "aidet-active-span": spanData }, () => {
         chrome.runtime.sendMessage({ type: "open-popup" });
       });
+    } else if (textPill) {
+      return;
     } else if (imagePill) {
       const mediaType = imagePill.getAttribute("data-media-type") || "image";
       const pillData = {

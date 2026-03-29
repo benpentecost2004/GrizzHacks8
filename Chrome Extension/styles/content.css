@@ -1,5 +1,6 @@
 /* ── AI Detector: highlight styles ── */
 
+/* Legacy inline mark highlights (fallback for string matching) */
 .aidet-highlight {
   position: relative;
   border-radius: 2px;
@@ -15,55 +16,89 @@
   filter: brightness(0.96);
 }
 
-/* ── Green — confidence < 50 (not AI) ── */
 .aidet-highlight[data-confidence-level="low"] {
   background-color: #c8e6c9;
   color: #1b5e20;
   border-bottom-color: #43a047;
 }
 
-/* ── Yellow — confidence 50–79 (possibly AI) ── */
 .aidet-highlight[data-confidence-level="medium"] {
   background-color: #fff176;
   color: #5c4a00;
   border-bottom-color: #f9a825;
 }
 
-/* ── Red — confidence >= 80 (likely AI) ── */
 .aidet-highlight[data-confidence-level="high"] {
   background-color: #ffcdd2;
   color: #7f0000;
   border-bottom-color: #e53935;
 }
 
-.aidet-highlight-overlay {
-  position: absolute;
-  z-index: 1000001;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 700;
-  font-family:
-    system-ui,
-    -apple-system,
-    sans-serif;
-  border-radius: 6px;
-  pointer-events: none;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+/* ── Text pill: single overlay per selection ── */
+
+.aidet-text-pill-group {
+  pointer-events: auto;
+  cursor: pointer;
 }
 
-.aidet-highlight-overlay[data-confidence-level="low"] {
+.aidet-text-pill-bg {
+  position: absolute;
+  z-index: 999998;
+  border-radius: 4px;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.aidet-text-pill-bg:hover {
+  filter: brightness(0.92);
+}
+
+.aidet-text-pill-bg[data-confidence-level="low"] {
+  background-color: rgba(200, 230, 201, 0.55);
+  box-shadow: 0 0 0 1px #43a047;
+}
+
+.aidet-text-pill-bg[data-confidence-level="medium"] {
+  background-color: rgba(255, 241, 118, 0.5);
+  box-shadow: 0 0 0 1px #f9a825;
+}
+
+.aidet-text-pill-bg[data-confidence-level="high"] {
+  background-color: rgba(255, 205, 210, 0.55);
+  box-shadow: 0 0 0 1px #e53935;
+}
+
+.aidet-text-pill-badge {
+  position: absolute;
+  z-index: 999999;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: system-ui, -apple-system, sans-serif;
+  padding: 3px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  pointer-events: auto;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.aidet-text-pill-badge:hover {
+  transform: scale(1.06);
+}
+
+.aidet-text-pill-badge[data-confidence-level="low"] {
   background-color: #1b5e20;
   color: #c8e6c9;
 }
 
-.aidet-highlight-overlay[data-confidence-level="medium"] {
+.aidet-text-pill-badge[data-confidence-level="medium"] {
   background-color: #5c4a00;
   color: #fff176;
 }
 
-.aidet-highlight-overlay[data-confidence-level="high"] {
+.aidet-text-pill-badge[data-confidence-level="high"] {
   background-color: #7f0000;
   color: #ffcdd2;
 }
