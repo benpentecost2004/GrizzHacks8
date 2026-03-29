@@ -144,14 +144,24 @@ chrome.runtime.onInstalled.addListener(async () => {
     title: "Analyze image with Verity",
     contexts: ["image"],
   });
+  chrome.contextMenus.create({
+    id: "verity-find-image",
+    title: "Analyze nearby image with Verity",
+    contexts: ["page", "frame", "link"],
+  });
 });
 
 /**
- * Open the badge popup when a highlight is clicked on the page.
+ * Handle messages from content script:
+ * - "open-popup": open the badge popup
+ * - "found-image": content script found an image near the right-click,
+ *   kick off the image analysis pipeline
  */
-chrome.runtime.onMessage.addListener((msg) => {
+chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg.type === "open-popup") {
     chrome.action.openPopup().catch(() => {});
+  } else if (msg.type === "found-image" && sender.tab?.id) {
+    analyzeImage(sender.tab.id, msg.srcUrl);
   }
 });
 
@@ -161,68 +171,73 @@ chrome.runtime.onMessage.addListener((msg) => {
  * Silently injects the content script if it isn't loaded yet
  * (e.g. tabs open before the extension was installed/reloaded).
  */
+async function ensureContentScript(tabId) {
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: "ping" });
+  } catch {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["Chrome Extension/content.js"],
+    });
+    await chrome.scripting.insertCSS({
+      target: { tabId },
+      files: ["Chrome Extension/styles/content.css"],
+    });
+  }
+}
+
+/**
+ * Runs the image analysis pipeline for a given tab and image URL.
+ * Shows loading state, calls backend, then sends result or error.
+ */
+async function analyzeImage(tabId, srcUrl) {
+  console.log("[Verity] Starting image analysis", { tabId, srcUrl });
+
+  await ensureContentScript(tabId);
+  await chrome.tabs.sendMessage(tabId, {
+    type: "image-loading",
+    srcUrl,
+  });
+
+  try {
+    const backendResult = await analyzeImageWithBackend(srcUrl);
+    const score = backendResult.confidence ?? 0;
+    await chrome.tabs.sendMessage(tabId, {
+      type: "image-result",
+      srcUrl,
+      score,
+      reason: backendResult.reasoning || "No reason returned by backend.",
+    });
+  } catch (error) {
+    const details = {
+      kind: error?.kind || "unknown",
+      status: error?.status,
+      message: toShortText(error?.message || error),
+    };
+
+    console.error("[Verity] Image analysis pipeline failed", {
+      tabId, srcUrl, details, rawError: error,
+    });
+
+    await chrome.tabs.sendMessage(tabId, {
+      type: "image-result",
+      srcUrl,
+      score: 0,
+      reason: formatImageErrorMessage(details),
+    });
+  }
+}
+
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!tab?.id) return;
 
-  async function ensureContentScript() {
-    try {
-      await chrome.tabs.sendMessage(tab.id, { type: "ping" });
-    } catch {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ["Chrome Extension/content.js"],
-      });
-      await chrome.scripting.insertCSS({
-        target: { tabId: tab.id },
-        files: ["Chrome Extension/styles/content.css"],
-      });
-    }
-  }
-
   if (info.menuItemId === "verity-analyze-text") {
-    await ensureContentScript();
+    await ensureContentScript(tab.id);
     await chrome.tabs.sendMessage(tab.id, { type: "analyze-selection" });
   } else if (info.menuItemId === "verity-analyze-image") {
-    console.log("[Verity] Context menu clicked: image", {
-      tabId: tab.id,
-      srcUrl: info.srcUrl,
-    });
-
-    await ensureContentScript();
-    await chrome.tabs.sendMessage(tab.id, {
-      type: "image-loading",
-      srcUrl: info.srcUrl,
-    });
-
-    try {
-      const backendResult = await analyzeImageWithBackend(info.srcUrl);
-      const score = backendResult.confidence ?? 0;
-      await chrome.tabs.sendMessage(tab.id, {
-        type: "image-result",
-        srcUrl: info.srcUrl,
-        score,
-        reason: backendResult.reasoning || "No reason returned by backend.",
-      });
-    } catch (error) {
-      const details = {
-        kind: error?.kind || "unknown",
-        status: error?.status,
-        message: toShortText(error?.message || error),
-      };
-
-      console.error("[Verity] Image analysis pipeline failed", {
-        tabId: tab.id,
-        srcUrl: info.srcUrl,
-        details,
-        rawError: error,
-      });
-
-      await chrome.tabs.sendMessage(tab.id, {
-        type: "image-result",
-        srcUrl: info.srcUrl,
-        score: 0,
-        reason: formatImageErrorMessage(details),
-      });
-    }
+    await analyzeImage(tab.id, info.srcUrl);
+  } else if (info.menuItemId === "verity-find-image") {
+    await ensureContentScript(tab.id);
+    await chrome.tabs.sendMessage(tab.id, { type: "find-image" });
   }
 });

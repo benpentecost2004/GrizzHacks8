@@ -413,6 +413,56 @@
     return spans;
   }
 
+  /**
+   * Track the last right-clicked element so we can find images
+   * even when invisible overlays prevent Chrome from detecting them.
+   */
+  let lastContextTarget = null;
+  document.addEventListener("contextmenu", (e) => {
+    lastContextTarget = e.target;
+  });
+
+  /**
+   * Finds the nearest <img> to the right-clicked element by checking
+   * the element itself, its descendants, its parent, and siblings.
+   * Handles sites like Instagram that put div overlays on top of images.
+   */
+  function findNearestImage(el) {
+    if (!el) return null;
+
+    if (el.tagName === "IMG") return el;
+
+    let img = el.querySelector("img");
+    if (img) return img;
+
+    let parent = el.parentElement;
+    for (let i = 0; i < 5 && parent; i++) {
+      img = parent.querySelector("img");
+      if (img) return img;
+      parent = parent.parentElement;
+    }
+
+    return null;
+  }
+
+  /**
+   * Handles "find-image" requests from background.js.
+   * Uses the last right-click target to locate a nearby <img>,
+   * then sends its src back to background for analysis.
+   */
+  function handleFindImage() {
+    const img = findNearestImage(lastContextTarget);
+    if (!img) return;
+
+    const src = img.currentSrc || img.src;
+    if (!src) return;
+
+    chrome.runtime.sendMessage({
+      type: "found-image",
+      srcUrl: src,
+    });
+  }
+
   // Route incoming messages from background.js to the appropriate handler
   chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
     if (msg.type === "text-result") {
@@ -423,6 +473,8 @@
       handleImageResult(msg);
     } else if (msg.type === "analyze-selection") {
       analyzeSelection();
+    } else if (msg.type === "find-image") {
+      handleFindImage();
     }
   });
 })();
