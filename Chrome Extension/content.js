@@ -239,18 +239,48 @@
   }
 
   /**
-   * Finds an <img> element by src URL. Tries exact match first,
-   * then falls back to partial match (for srcset / CDN variations).
+   * Extracts the pathname from a URL, stripping query params and
+   * hash so CDN URLs with rotating tokens can still match.
+   */
+  function urlPathname(url) {
+    try { return new URL(url).pathname; }
+    catch { return url; }
+  }
+
+  /**
+   * Finds an <img> element by src URL. Matching strategy:
+   *   1. Exact src attribute match via CSS selector
+   *   2. Exact src or currentSrc property match
+   *   3. Fuzzy: compare URL pathnames (ignoring query params)
+   *      — handles Instagram/CDN URLs with rotating tokens
+   *   4. srcset scan: check if the URL pathname appears in srcset
    */
   function findImageBySrc(srcUrl) {
-    let img = document.querySelector('img[src="' + CSS.escape(srcUrl) + '"]');
-    if (img && !img.hasAttribute("data-aidet-analyzed")) return img;
-
+    const needle = urlPathname(srcUrl);
     const allImgs = document.querySelectorAll("img");
+
+    // Pass 1: exact match
     for (const el of allImgs) {
       if (el.hasAttribute("data-aidet-analyzed")) continue;
       if (el.src === srcUrl || el.currentSrc === srcUrl) return el;
     }
+
+    // Pass 2: pathname match (ignores query params)
+    for (const el of allImgs) {
+      if (el.hasAttribute("data-aidet-analyzed")) continue;
+      if (urlPathname(el.src) === needle || urlPathname(el.currentSrc) === needle) return el;
+    }
+
+    // Pass 3: check srcset entries
+    for (const el of allImgs) {
+      if (el.hasAttribute("data-aidet-analyzed")) continue;
+      const srcset = el.getAttribute("srcset") || "";
+      const entries = srcset.split(",").map((s) => s.trim().split(/\s+/)[0]);
+      for (const entry of entries) {
+        if (entry === srcUrl || urlPathname(entry) === needle) return el;
+      }
+    }
+
     return null;
   }
 
@@ -373,6 +403,56 @@
     };
   }
 
+  /**
+   * Track the last right-clicked element so we can find images
+   * even when invisible overlays prevent Chrome from detecting them.
+   */
+  let lastContextTarget = null;
+  document.addEventListener("contextmenu", (e) => {
+    lastContextTarget = e.target;
+  });
+
+  /**
+   * Finds the nearest <img> to the right-clicked element by checking
+   * the element itself, its descendants, its parent, and siblings.
+   * Handles sites like Instagram that put div overlays on top of images.
+   */
+  function findNearestImage(el) {
+    if (!el) return null;
+
+    if (el.tagName === "IMG") return el;
+
+    let img = el.querySelector("img");
+    if (img) return img;
+
+    let parent = el.parentElement;
+    for (let i = 0; i < 5 && parent; i++) {
+      img = parent.querySelector("img");
+      if (img) return img;
+      parent = parent.parentElement;
+    }
+
+    return null;
+  }
+
+  /**
+   * Handles "find-image" requests from background.js.
+   * Uses the last right-click target to locate a nearby <img>,
+   * then sends its src back to background for analysis.
+   */
+  function handleFindImage() {
+    const img = findNearestImage(lastContextTarget);
+    if (!img) return;
+
+    const src = img.currentSrc || img.src;
+    if (!src) return;
+
+    chrome.runtime.sendMessage({
+      type: "found-image",
+      srcUrl: src,
+    });
+  }
+
   // Route incoming messages from background.js to the appropriate handler
   chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
     if (msg.type === "text-result") {
@@ -383,6 +463,8 @@
       handleImageResult(msg);
     } else if (msg.type === "analyze-selection") {
       analyzeSelection();
+    } else if (msg.type === "find-image") {
+      handleFindImage();
     }
   });
 })();
