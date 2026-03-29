@@ -196,7 +196,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
     try {
       const backendResult = await analyzeImageWithBackend(info.srcUrl);
-      const score = backendResult.confidence ?? 0;
+     const score = backendResult.confidence ?? 0;
       await chrome.tabs.sendMessage(tab.id, {
         type: "image-result",
         srcUrl: info.srcUrl,

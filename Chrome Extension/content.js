@@ -52,7 +52,7 @@
           }
           return NodeFilter.FILTER_ACCEPT;
         },
-      }
+      },
     );
 
     let node;
@@ -159,14 +159,19 @@
 
     function positionPill() {
       const rect = img.getBoundingClientRect();
-      pill.style.top = (window.scrollY + rect.top + 8) + "px";
-      pill.style.left = (window.scrollX + rect.right - pill.offsetWidth - 8) + "px";
+      pill.style.top = window.scrollY + rect.top + 8 + "px";
+      pill.style.left =
+        window.scrollX + rect.right - pill.offsetWidth - 8 + "px";
     }
 
     positionPill();
     pill._repositionHandler = () => positionPill();
-    window.addEventListener("scroll", pill._repositionHandler, { passive: true });
-    window.addEventListener("resize", pill._repositionHandler, { passive: true });
+    window.addEventListener("scroll", pill._repositionHandler, {
+      passive: true,
+    });
+    window.addEventListener("resize", pill._repositionHandler, {
+      passive: true,
+    });
   }
 
   /**
@@ -180,13 +185,15 @@
     if (!msg.srcUrl) return;
 
     // Remove loading pill for this image if present
-    document.querySelectorAll('.aidet-image-pill.aidet-loading').forEach((p) => {
-      if (p.getAttribute("data-src-url") === msg.srcUrl) {
-        window.removeEventListener("scroll", p._repositionHandler);
-        window.removeEventListener("resize", p._repositionHandler);
-        p.remove();
-      }
-    });
+    document
+      .querySelectorAll(".aidet-image-pill.aidet-loading")
+      .forEach((p) => {
+        if (p.getAttribute("data-src-url") === msg.srcUrl) {
+          window.removeEventListener("scroll", p._repositionHandler);
+          window.removeEventListener("resize", p._repositionHandler);
+          p.remove();
+        }
+      });
 
     const img = findImageBySrc(msg.srcUrl);
     if (!img) return;
@@ -206,14 +213,19 @@
 
     function positionPill() {
       const rect = img.getBoundingClientRect();
-      pill.style.top = (window.scrollY + rect.top + 8) + "px";
-      pill.style.left = (window.scrollX + rect.right - pill.offsetWidth - 8) + "px";
+      pill.style.top = window.scrollY + rect.top + 8 + "px";
+      pill.style.left =
+        window.scrollX + rect.right - pill.offsetWidth - 8 + "px";
     }
 
     positionPill();
     pill._repositionHandler = () => positionPill();
-    window.addEventListener("scroll", pill._repositionHandler, { passive: true });
-    window.addEventListener("resize", pill._repositionHandler, { passive: true });
+    window.addEventListener("scroll", pill._repositionHandler, {
+      passive: true,
+    });
+    window.addEventListener("resize", pill._repositionHandler, {
+      passive: true,
+    });
 
     img.setAttribute("data-aidet-analyzed", "true");
 
@@ -321,8 +333,8 @@
 
     const loader = document.createElement("div");
     loader.className = "aidet-loading-pill";
-    loader.style.top = (window.scrollY + rect.top) + "px";
-    loader.style.left = (window.scrollX + rect.left) + "px";
+    loader.style.top = window.scrollY + rect.top + "px";
+    loader.style.left = window.scrollX + rect.left + "px";
     loader.style.width = rect.width + "px";
     loader.style.height = rect.height + "px";
     loader.style.borderRadius = Math.min(rect.height / 2, 14) + "px";
@@ -331,56 +343,34 @@
     setTimeout(() => {
       loader.remove();
 
-      const spans = generateTestSpans(text);
-      if (!spans.length) return;
-
-      const avg = Math.round(spans.reduce((s, x) => s + x.confidence, 0) / spans.length);
+      const span = generateSelectionSpan(text);
+      if (!span) return;
 
       handleTextResult({
         type: "text-result",
-        spans,
-        overallScore: avg,
+        spans: [span],
+        overallScore: span.confidence,
         fullReason: "Test analysis of selected text.",
       });
     }, 1500);
   }
 
   /**
-   * Splits text into random chunks of 2-6 words using exact
-   * substrings from the original text (preserving whitespace).
+   * Builds one test span from the full selected text so selection
+   * analysis highlights and scores the entire selection as a unit.
    */
-  function generateTestSpans(text) {
-    const wordPattern = /\S+/g;
-    const words = [];
-    let m;
-    while ((m = wordPattern.exec(text))) {
-      words.push({ word: m[0], start: m.index, end: m.index + m[0].length });
-    }
-    if (words.length === 0) return [];
+  function generateSelectionSpan(text) {
+    if (!text.trim()) return null;
 
-    const spans = [];
-    let i = 0;
-
-    while (i < words.length) {
-      const chunkSize = Math.min(
-        Math.floor(Math.random() * 5) + 2,
-        words.length - i
-      );
-      const start = words[i].start;
-      const end = words[i + chunkSize - 1].end;
-      const chunk = text.substring(start, end);
-      const confidence = Math.floor(Math.random() * 100);
-
-      spans.push({
-        text: chunk,
-        confidence,
-        reason: "Test — " + confidence + "% confidence this chunk is AI-generated.",
-      });
-
-      i += chunkSize;
-    }
-
-    return spans;
+    const confidence = Math.floor(Math.random() * 100);
+    return {
+      text,
+      confidence,
+      reason:
+        "Test — " +
+        confidence +
+        "% confidence this selected text is AI-generated.",
+    };
   }
 
   // Route incoming messages from background.js to the appropriate handler
