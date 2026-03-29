@@ -63,6 +63,11 @@ function renderDetail(entry) {
     return;
   }
 
+  if (entry.type === "video-result") {
+    renderVideoDetail(entry, level);
+    return;
+  }
+
   if (!entry.spans || !entry.spans.length) {
     cardsEl.innerHTML = '<div style="padding:8px;color:#6c7086;font-size:12px;">No spans</div>';
     return;
@@ -116,6 +121,37 @@ function renderImageDetail(entry, level) {
 }
 
 /**
+ * Renders the detail view for a video analysis result:
+ * video thumbnail (via <video> element), aggregated score,
+ * number of frames analyzed, and combined reasoning.
+ */
+function renderVideoDetail(entry, level) {
+  const card = document.createElement("div");
+  card.className = "verity-image-card verity-video-card";
+
+  const score = entry.overallScore ?? entry.score ?? 0;
+  const framesText = entry.framesAnalyzed
+    ? entry.framesAnalyzed + " frames analyzed"
+    : "";
+
+  card.innerHTML =
+    '<div class="verity-video-thumb-wrap">' +
+      '<video class="verity-video-thumb" src="' + escapeHtml(entry.srcUrl || "") + '" muted preload="metadata"></video>' +
+      '<div class="verity-video-icon">&#9654;</div>' +
+    '</div>' +
+    '<div class="verity-image-info">' +
+      '<span class="verity-card-conf ' + level + '" style="font-size:14px;padding:4px 10px;">' + score + '%</span>' +
+      '<span style="font-size:12px;color:#a6adc8;margin-left:8px;">' +
+        (score >= 70 ? "Likely AI-generated" : score >= 20 ? "Possibly AI-generated" : "Likely real") +
+      '</span>' +
+    '</div>' +
+    (framesText ? '<div style="font-size:11px;color:#6c7086;padding:0 12px;">' + framesText + '</div>' : '') +
+    '<div class="verity-image-reason">' + escapeHtml(entry.reason || entry.fullReason || "") + '</div>';
+
+  cardsEl.appendChild(card);
+}
+
+/**
  * Renders the history list from stored entries.
  */
 function renderHistory(history) {
@@ -134,11 +170,13 @@ function renderHistory(history) {
     const score = entry.overallScore ?? entry.score ?? 0;
     const level = levelFor(score);
     const isImage = entry.type === "image-result";
+    const isVideo = entry.type === "video-result";
     const title = entry.title || new URL(entry.url || "about:blank").hostname;
+    const prefix = isVideo ? "[VID] " : isImage ? "[IMG] " : "";
 
     li.innerHTML =
       '<span class="hi-score ' + level + '">' + score + '</span>' +
-      '<span class="hi-title">' + (isImage ? "[IMG] " : "") + escapeHtml(title) + '</span>' +
+      '<span class="hi-title">' + prefix + escapeHtml(title) + '</span>' +
       '<span class="hi-time">' + timeAgo(entry.timestamp) + '</span>';
 
     li.addEventListener("click", () => renderDetail(entry));
@@ -185,17 +223,24 @@ chrome.storage.local.get({ "aidet-history": [], "aidet-active-span": null }, (da
 
   renderHistory(history);
 
-  // If opened from a highlight click, find and expand that span's card
   if (activeSpan) {
     chrome.storage.local.remove("aidet-active-span");
-    const cards = cardsEl.querySelectorAll(".verity-card");
-    for (const card of cards) {
-      const cardText = card.querySelector(".verity-card-text");
-      if (cardText && activeSpan.text &&
-          cardText.textContent.startsWith(activeSpan.text.slice(0, 30))) {
-        card.classList.add("expanded");
-        card.scrollIntoView({ behavior: "smooth", block: "center" });
-        break;
+
+    if (activeSpan.type === "image" || activeSpan.type === "video") {
+      const match = history.find((h) =>
+        h.srcUrl === activeSpan.srcUrl && (h.type === "image-result" || h.type === "video-result")
+      );
+      if (match) renderDetail(match);
+    } else {
+      const cards = cardsEl.querySelectorAll(".verity-card");
+      for (const card of cards) {
+        const cardText = card.querySelector(".verity-card-text");
+        if (cardText && activeSpan.text &&
+            cardText.textContent.startsWith(activeSpan.text.slice(0, 30))) {
+          card.classList.add("expanded");
+          card.scrollIntoView({ behavior: "smooth", block: "center" });
+          break;
+        }
       }
     }
   }

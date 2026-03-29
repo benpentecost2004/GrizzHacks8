@@ -304,6 +304,15 @@
       pill.remove();
     });
 
+    document.querySelectorAll(".aidet-video-overlay").forEach((overlay) => {
+      window.removeEventListener("scroll", overlay._repositionHandler);
+      window.removeEventListener("resize", overlay._repositionHandler);
+      if (overlay._badge) overlay._badge.remove();
+      overlay.remove();
+    });
+
+    document.querySelectorAll(".aidet-video-badge").forEach((b) => b.remove());
+
     document.querySelectorAll("[data-aidet-analyzed]").forEach((img) => {
       img.removeAttribute("data-aidet-analyzed");
     });
@@ -329,13 +338,14 @@
         chrome.runtime.sendMessage({ type: "open-popup" });
       });
     } else if (imagePill) {
-      const imgData = {
-        type: "image",
+      const mediaType = imagePill.getAttribute("data-media-type") || "image";
+      const pillData = {
+        type: mediaType,
         srcUrl: imagePill.getAttribute("data-src-url"),
         score: parseInt(imagePill.getAttribute("data-confidence"), 10),
         reason: imagePill.getAttribute("data-reason") || "",
       };
-      chrome.storage.local.set({ "aidet-active-span": imgData }, () => {
+      chrome.storage.local.set({ "aidet-active-span": pillData }, () => {
         chrome.runtime.sendMessage({ type: "open-popup" });
       });
     } else {
@@ -453,6 +463,189 @@
     });
   }
 
+  /* ── Video analysis ── */
+
+  /**
+   * Finds a <video> element near the right-click target,
+   * same DOM traversal strategy as findNearestImage.
+   */
+  function findNearestVideo(el) {
+    if (!el) return null;
+    if (el.tagName === "VIDEO") return el;
+
+    let vid = el.querySelector("video");
+    if (vid) return vid;
+
+    let parent = el.parentElement;
+    for (let i = 0; i < 5 && parent; i++) {
+      vid = parent.querySelector("video");
+      if (vid) return vid;
+      parent = parent.parentElement;
+    }
+    return null;
+  }
+
+  /**
+   * Handles "find-video" — locates a video near the right-click
+   * target and kicks off analysis.
+   */
+  function handleFindVideo() {
+    const video = findNearestVideo(lastContextTarget);
+    if (!video) return;
+    analyzeVideo(video);
+  }
+
+  /**
+   * Handles "analyze-video" — finds the video by srcUrl and
+   * kicks off analysis.
+   */
+  function handleAnalyzeVideo(msg) {
+    let video = null;
+    if (msg.srcUrl) {
+      video = document.querySelector('video[src="' + CSS.escape(msg.srcUrl) + '"]');
+    }
+    if (!video) video = findNearestVideo(lastContextTarget);
+    if (!video) video = document.querySelector("video");
+    if (!video) return;
+    analyzeVideo(video);
+  }
+
+  /**
+   * Creates a colored border overlay around the video and a score
+   * badge beside it. Captures the current visible frame (what's
+   * on-screen right now) via canvas.drawImage and sends it to the
+   * image analysis backend. No cloning or seeking — works on
+   * blob: URLs, cross-origin, and MediaSource-backed players.
+   */
+  function analyzeVideo(video) {
+    const videoSrc = video.currentSrc || video.src || "video-" + Date.now();
+
+    // Build the border overlay + badge container
+    const overlay = document.createElement("div");
+    overlay.className = "aidet-video-overlay aidet-loading";
+    overlay.setAttribute("data-src-url", videoSrc);
+    document.body.appendChild(overlay);
+
+    const badge = document.createElement("div");
+    badge.className = "aidet-video-badge aidet-loading";
+    badge.innerHTML = '<span class="aidet-video-badge-icon">&#9654;</span> Analyzing\u2026';
+    document.body.appendChild(badge);
+
+    function positionOverlay() {
+      const rect = video.getBoundingClientRect();
+      overlay.style.top = (window.scrollY + rect.top) + "px";
+      overlay.style.left = (window.scrollX + rect.left) + "px";
+      overlay.style.width = rect.width + "px";
+      overlay.style.height = rect.height + "px";
+
+      badge.style.top = (window.scrollY + rect.top + 8) + "px";
+      badge.style.left = (window.scrollX + rect.right + 8) + "px";
+    }
+    positionOverlay();
+    const reposition = () => positionOverlay();
+    window.addEventListener("scroll", reposition, { passive: true });
+    window.addEventListener("resize", reposition, { passive: true });
+
+    overlay._repositionHandler = reposition;
+    badge._repositionHandler = reposition;
+    overlay._badge = badge;
+    overlay._video = video;
+
+    // Capture the current visible frame directly
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 360;
+    const ctx = canvas.getContext("2d");
+
+    let frameDataUrl = null;
+    try {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      frameDataUrl = canvas.toDataURL("image/jpeg", 0.75);
+    } catch (_) {
+      // tainted canvas — cross-origin without CORS headers
+    }
+
+    if (!frameDataUrl) {
+      showVideoResult(overlay, badge, video, videoSrc, 0,
+        "Could not capture video frame (cross-origin restriction).", reposition);
+      return;
+    }
+
+    chrome.runtime.sendMessage({
+      type: "analyze-frame",
+      frameDataUrl,
+      frameIndex: 0,
+      totalFrames: 1,
+      videoSrc,
+    });
+  }
+
+  /**
+   * Receives the single-frame result from background and renders
+   * the final colored border + score badge.
+   */
+  function handleVideoFrameResult(msg) {
+    const overlay = document.querySelector(
+      '.aidet-video-overlay[data-src-url="' + CSS.escape(msg.videoSrc) + '"]'
+    );
+    if (!overlay) return;
+
+    const badge = overlay._badge;
+    const video = overlay._video;
+    const reposition = overlay._repositionHandler;
+    const score = msg.score ?? 0;
+    const reason = msg.reason || "";
+
+    showVideoResult(overlay, badge, video, msg.videoSrc, score, reason, reposition);
+  }
+
+  /**
+   * Applies the final result state to the video overlay + badge.
+   * Colors the border, fills in the score, and makes the badge
+   * clickable to open the popup.
+   */
+  function showVideoResult(overlay, badge, video, videoSrc, score, reason, reposition) {
+    const level = confidenceLevel(score);
+
+    overlay.classList.remove("aidet-loading");
+    overlay.setAttribute("data-confidence-level", level);
+
+    badge.classList.remove("aidet-loading");
+    badge.setAttribute("data-confidence-level", level);
+    badge.setAttribute("data-media-type", "video");
+    badge.setAttribute("data-src-url", videoSrc);
+    badge.setAttribute("data-confidence", score);
+    badge.setAttribute("data-reason", reason);
+    badge.innerHTML =
+      '<span class="aidet-video-badge-icon">&#9654;</span> ' +
+      '<span class="aidet-video-badge-score">' + score + '%</span>' +
+      '<span class="aidet-video-badge-label">' +
+        (score >= 70 ? "Likely AI" : score >= 20 ? "Possibly AI" : "Likely real") +
+      '</span>';
+
+    badge.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const pillData = {
+        type: "video",
+        srcUrl: videoSrc,
+        score,
+        reason,
+      };
+      chrome.storage.local.set({ "aidet-active-span": pillData }, () => {
+        chrome.runtime.sendMessage({ type: "open-popup" });
+      });
+    });
+
+    saveResult({
+      type: "video-result",
+      srcUrl: videoSrc,
+      score,
+      reason,
+      overallScore: score,
+      framesAnalyzed: 1,
+    });
+  }
+
   // Route incoming messages from background.js to the appropriate handler
   chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
     if (msg.type === "text-result") {
@@ -465,6 +658,12 @@
       analyzeSelection();
     } else if (msg.type === "find-image") {
       handleFindImage();
+    } else if (msg.type === "analyze-video") {
+      handleAnalyzeVideo(msg);
+    } else if (msg.type === "find-video") {
+      handleFindVideo();
+    } else if (msg.type === "video-frame-result") {
+      handleVideoFrameResult(msg);
     }
   });
 })();
