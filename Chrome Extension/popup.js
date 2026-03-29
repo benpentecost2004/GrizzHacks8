@@ -36,26 +36,32 @@ function timeAgo(ts) {
 }
 
 /**
- * Renders the detail view for a single scan result:
- * overall score + a card per span with expandable reason.
+ * Renders the detail view for a single scan result.
+ * Handles both text results (span cards) and image results (thumbnail + score).
  */
 function renderDetail(entry) {
   emptyEl.hidden = true;
   detailEl.hidden = false;
 
-  const level = levelFor(entry.overallScore);
-  scoreNum.textContent = entry.overallScore;
+  const score = entry.overallScore ?? entry.score ?? 0;
+  const level = levelFor(score);
+  scoreNum.textContent = score;
   scoreNum.className = "verity-score-num " + level;
 
-  const label = entry.overallScore >= 70
+  const label = score >= 70
     ? "Likely AI-generated"
-    : entry.overallScore >= 20
+    : score >= 20
       ? "Possibly AI-generated"
       : "Likely human-written";
   scoreLabel.textContent = label;
   scoreUrl.textContent = entry.title || entry.url || "";
 
   cardsEl.innerHTML = "";
+
+  if (entry.type === "image-result") {
+    renderImageDetail(entry, level);
+    return;
+  }
 
   if (!entry.spans || !entry.spans.length) {
     cardsEl.innerHTML = '<div style="padding:8px;color:#6c7086;font-size:12px;">No spans</div>';
@@ -87,6 +93,29 @@ function renderDetail(entry) {
 }
 
 /**
+ * Renders the detail view for an image analysis result:
+ * thumbnail, large score, and reason text.
+ */
+function renderImageDetail(entry, level) {
+  const card = document.createElement("div");
+  card.className = "verity-image-card";
+
+  const score = entry.overallScore ?? entry.score ?? 0;
+
+  card.innerHTML =
+    '<img class="verity-image-thumb" src="' + escapeHtml(entry.srcUrl || "") + '" alt="Analyzed image">' +
+    '<div class="verity-image-info">' +
+      '<span class="verity-card-conf ' + level + '" style="font-size:14px;padding:4px 10px;">' + score + '%</span>' +
+      '<span style="font-size:12px;color:#a6adc8;margin-left:8px;">' +
+        (score >= 70 ? "Likely AI-generated" : score >= 20 ? "Possibly AI-generated" : "Likely real") +
+      '</span>' +
+    '</div>' +
+    '<div class="verity-image-reason">' + escapeHtml(entry.reason || entry.fullReason || "") + '</div>';
+
+  cardsEl.appendChild(card);
+}
+
+/**
  * Renders the history list from stored entries.
  */
 function renderHistory(history) {
@@ -102,12 +131,14 @@ function renderHistory(history) {
   history.forEach((entry, idx) => {
     const li = document.createElement("li");
     li.className = "verity-history-item";
-    const level = levelFor(entry.overallScore);
+    const score = entry.overallScore ?? entry.score ?? 0;
+    const level = levelFor(score);
+    const isImage = entry.type === "image-result";
     const title = entry.title || new URL(entry.url || "about:blank").hostname;
 
     li.innerHTML =
-      '<span class="hi-score ' + level + '">' + entry.overallScore + '</span>' +
-      '<span class="hi-title">' + escapeHtml(title) + '</span>' +
+      '<span class="hi-score ' + level + '">' + score + '</span>' +
+      '<span class="hi-title">' + (isImage ? "[IMG] " : "") + escapeHtml(title) + '</span>' +
       '<span class="hi-time">' + timeAgo(entry.timestamp) + '</span>';
 
     li.addEventListener("click", () => renderDetail(entry));

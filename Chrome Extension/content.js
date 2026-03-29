@@ -115,8 +115,11 @@
       title: document.title,
       type: msg.type,
       spans: msg.spans,
-      overallScore: msg.overallScore,
+      overallScore: msg.overallScore ?? msg.score,
       fullReason: msg.fullReason,
+      srcUrl: msg.srcUrl,
+      score: msg.score,
+      reason: msg.reason,
     };
 
     chrome.storage.local.get({ "aidet-history": [] }, (data) => {
@@ -139,9 +142,111 @@
   }
 
   /**
+   * Shows a loading pill over an image while analysis is in progress.
+   * The pill gets replaced when the real image-result arrives.
+   */
+  function handleImageLoading(msg) {
+    if (!msg.srcUrl) return;
+
+    const img = findImageBySrc(msg.srcUrl);
+    if (!img) return;
+
+    const pill = document.createElement("div");
+    pill.className = "aidet-image-pill aidet-loading";
+    pill.setAttribute("data-src-url", msg.srcUrl);
+    pill.textContent = "\u00A0";
+    document.body.appendChild(pill);
+
+    function positionPill() {
+      const rect = img.getBoundingClientRect();
+      pill.style.top = (window.scrollY + rect.top + 8) + "px";
+      pill.style.left = (window.scrollX + rect.right - pill.offsetWidth - 8) + "px";
+    }
+
+    positionPill();
+    pill._repositionHandler = () => positionPill();
+    window.addEventListener("scroll", pill._repositionHandler, { passive: true });
+    window.addEventListener("resize", pill._repositionHandler, { passive: true });
+  }
+
+  /**
+   * Handles an "image-result" message. Finds the <img> on the page
+   * matching srcUrl and overlays a floating % pill on top of it.
+   * Does NOT modify the image's DOM tree — the pill is appended to
+   * document.body and positioned via getBoundingClientRect, so it
+   * works on sites with complex DOM structures (e.g. Twitter).
+   */
+  function handleImageResult(msg) {
+    if (!msg.srcUrl) return;
+
+    // Remove loading pill for this image if present
+    document.querySelectorAll('.aidet-image-pill.aidet-loading').forEach((p) => {
+      if (p.getAttribute("data-src-url") === msg.srcUrl) {
+        window.removeEventListener("scroll", p._repositionHandler);
+        window.removeEventListener("resize", p._repositionHandler);
+        p.remove();
+      }
+    });
+
+    const img = findImageBySrc(msg.srcUrl);
+    if (!img) return;
+
+    const level = confidenceLevel(msg.score);
+    const score = msg.score;
+    const reason = msg.reason || "";
+
+    const pill = document.createElement("div");
+    pill.className = "aidet-image-pill";
+    pill.setAttribute("data-confidence-level", level);
+    pill.setAttribute("data-src-url", msg.srcUrl);
+    pill.setAttribute("data-confidence", score);
+    pill.setAttribute("data-reason", reason);
+    pill.textContent = score + "%";
+    document.body.appendChild(pill);
+
+    function positionPill() {
+      const rect = img.getBoundingClientRect();
+      pill.style.top = (window.scrollY + rect.top + 8) + "px";
+      pill.style.left = (window.scrollX + rect.right - pill.offsetWidth - 8) + "px";
+    }
+
+    positionPill();
+    pill._repositionHandler = () => positionPill();
+    window.addEventListener("scroll", pill._repositionHandler, { passive: true });
+    window.addEventListener("resize", pill._repositionHandler, { passive: true });
+
+    img.setAttribute("data-aidet-analyzed", "true");
+
+    saveResult({
+      type: "image-result",
+      srcUrl: msg.srcUrl,
+      score,
+      reason,
+      overallScore: score,
+    });
+  }
+
+  /**
+   * Finds an <img> element by src URL. Tries exact match first,
+   * then falls back to partial match (for srcset / CDN variations).
+   */
+  function findImageBySrc(srcUrl) {
+    let img = document.querySelector('img[src="' + CSS.escape(srcUrl) + '"]');
+    if (img && !img.hasAttribute("data-aidet-analyzed")) return img;
+
+    const allImgs = document.querySelectorAll("img");
+    for (const el of allImgs) {
+      if (el.hasAttribute("data-aidet-analyzed")) continue;
+      if (el.src === srcUrl || el.currentSrc === srcUrl) return el;
+    }
+    return null;
+  }
+
+  /**
    * Removes all highlights from the page, restoring the original
    * text. Replaces each <mark> with a plain text node and calls
    * normalize() to merge adjacent text nodes back together.
+   * Also removes any image analysis pill overlays.
    */
   function clearAllHighlights() {
     document.querySelectorAll(".aidet-highlight").forEach((mark) => {
@@ -150,22 +255,45 @@
       parent.replaceChild(text, mark);
       parent.normalize();
     });
+
+    document.querySelectorAll(".aidet-image-pill").forEach((pill) => {
+      window.removeEventListener("scroll", pill._repositionHandler);
+      window.removeEventListener("resize", pill._repositionHandler);
+      pill.remove();
+    });
+
+    document.querySelectorAll("[data-aidet-analyzed]").forEach((img) => {
+      img.removeAttribute("data-aidet-analyzed");
+    });
   }
 
   /**
-   * When a highlight is clicked, store which span was clicked and
-   * ask the background to open the badge popup with that span's detail.
+   * When a highlight or image wrap is clicked, store which item was
+   * clicked and ask the background to open the badge popup.
    * Clicking anywhere else dismisses all highlights.
    */
   document.addEventListener("click", (e) => {
     const highlight = e.target.closest(".aidet-highlight");
+    const imagePill = e.target.closest(".aidet-image-pill");
+
     if (highlight) {
       const spanData = {
+        type: "text",
         text: highlight.textContent,
         confidence: parseInt(highlight.getAttribute("data-confidence"), 10),
         reason: highlight.getAttribute("data-reason") || "",
       };
       chrome.storage.local.set({ "aidet-active-span": spanData }, () => {
+        chrome.runtime.sendMessage({ type: "open-popup" });
+      });
+    } else if (imagePill) {
+      const imgData = {
+        type: "image",
+        srcUrl: imagePill.getAttribute("data-src-url"),
+        score: parseInt(imagePill.getAttribute("data-confidence"), 10),
+        reason: imagePill.getAttribute("data-reason") || "",
+      };
+      chrome.storage.local.set({ "aidet-active-span": imgData }, () => {
         chrome.runtime.sendMessage({ type: "open-popup" });
       });
     } else {
@@ -186,19 +314,35 @@
     const text = sel.toString();
     if (!text.trim()) return;
 
-    const spans = generateTestSpans(text);
-    if (!spans.length) return;
-
-    const avg = Math.round(spans.reduce((s, x) => s + x.confidence, 0) / spans.length);
+    const range = sel.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
 
     sel.removeAllRanges();
 
-    handleTextResult({
-      type: "text-result",
-      spans,
-      overallScore: avg,
-      fullReason: "Test analysis of selected text.",
-    });
+    const loader = document.createElement("div");
+    loader.className = "aidet-loading-pill";
+    loader.style.top = (window.scrollY + rect.top) + "px";
+    loader.style.left = (window.scrollX + rect.left) + "px";
+    loader.style.width = rect.width + "px";
+    loader.style.height = rect.height + "px";
+    loader.style.borderRadius = Math.min(rect.height / 2, 14) + "px";
+    document.body.appendChild(loader);
+
+    setTimeout(() => {
+      loader.remove();
+
+      const spans = generateTestSpans(text);
+      if (!spans.length) return;
+
+      const avg = Math.round(spans.reduce((s, x) => s + x.confidence, 0) / spans.length);
+
+      handleTextResult({
+        type: "text-result",
+        spans,
+        overallScore: avg,
+        fullReason: "Test analysis of selected text.",
+      });
+    }, 1500);
   }
 
   /**
@@ -243,6 +387,10 @@
   chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
     if (msg.type === "text-result") {
       handleTextResult(msg);
+    } else if (msg.type === "image-loading") {
+      handleImageLoading(msg);
+    } else if (msg.type === "image-result") {
+      handleImageResult(msg);
     } else if (msg.type === "analyze-selection") {
       analyzeSelection();
     }

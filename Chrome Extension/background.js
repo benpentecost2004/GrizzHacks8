@@ -14,9 +14,14 @@
 chrome.runtime.onInstalled.addListener(async () => {
   await chrome.contextMenus.removeAll();
   chrome.contextMenus.create({
-    id: "verity-analyze",
-    title: "Analyze with Verity",
+    id: "verity-analyze-text",
+    title: "Analyze text with Verity",
     contexts: ["selection"],
+  });
+  chrome.contextMenus.create({
+    id: "verity-analyze-image",
+    title: "Analyze image with Verity",
+    contexts: ["image"],
   });
 });
 
@@ -36,19 +41,41 @@ chrome.runtime.onMessage.addListener((msg) => {
  * (e.g. tabs open before the extension was installed/reloaded).
  */
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId !== "verity-analyze" || !tab?.id) return;
+  if (!tab?.id) return;
 
-  try {
+  async function ensureContentScript() {
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: "ping" });
+    } catch {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["content.js"],
+      });
+      await chrome.scripting.insertCSS({
+        target: { tabId: tab.id },
+        files: ["styles/content.css"],
+      });
+    }
+  }
+
+  if (info.menuItemId === "verity-analyze-text") {
+    await ensureContentScript();
     await chrome.tabs.sendMessage(tab.id, { type: "analyze-selection" });
-  } catch {
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      files: ["content.js"],
+  } else if (info.menuItemId === "verity-analyze-image") {
+    await ensureContentScript();
+    await chrome.tabs.sendMessage(tab.id, {
+      type: "image-loading",
+      srcUrl: info.srcUrl,
     });
-    await chrome.scripting.insertCSS({
-      target: { tabId: tab.id },
-      files: ["styles/content.css"],
-    });
-    await chrome.tabs.sendMessage(tab.id, { type: "analyze-selection" });
+
+    setTimeout(async () => {
+      const score = Math.floor(Math.random() * 100);
+      await chrome.tabs.sendMessage(tab.id, {
+        type: "image-result",
+        srcUrl: info.srcUrl,
+        score,
+        reason: "Test — " + score + "% confidence this image is AI-generated.",
+      });
+    }, 1500);
   }
 });
