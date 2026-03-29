@@ -1,14 +1,20 @@
 {
-  "name": "Hello Extensions",
-  "description": "Base Level Extension",
-  "version": "1.0",
+  "name": "Verity — AI Content Detector",
+  "description": "Detect AI-generated text and images",
+  "version": "0.1",
   "manifest_version": 3,
-  "permissions": ["contextMenus", "scripting", "activeTab"],
-  "action": {
-    "default_popup": "hello.html",
-    "default_icon": "hello_extensions.png"
-  },
+  "permissions": ["activeTab", "storage", "contextMenus"],
   "background": {
     "service_worker": "background.js"
-  }
+  },
+  "action": {
+    "default_icon": "hello_extensions.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["styles/content.css"]
+    }
+  ]
 }

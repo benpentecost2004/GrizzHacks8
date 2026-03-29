@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Detector — Highlight Test</title>
+  <link rel="stylesheet" href="styles/content.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f5f5f5;
+      color: #1a1a1a;
+      padding: 24px;
+    }
+
+    #test-controls {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      padding: 20px;
+      border-radius: 12px;
+      margin-bottom: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    #test-controls h2 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #89b4fa;
+    }
+
+    #test-controls textarea {
+      width: 100%;
+      min-height: 100px;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #45475a;
+      background: #313244;
+      color: #cdd6f4;
+      font-family: inherit;
+      font-size: 14px;
+      resize: vertical;
+    }
+
+    #test-controls textarea::placeholder { color: #6c7086; }
+
+    .controls-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    #test-controls label {
+      font-size: 13px;
+      color: #a6adc8;
+    }
+
+    #test-controls input[type="text"] {
+      flex: 1;
+      min-width: 160px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid #45475a;
+      background: #313244;
+      color: #cdd6f4;
+      font-size: 13px;
+    }
+
+    #test-controls input[type="range"] {
+      width: 120px;
+      accent-color: #89b4fa;
+    }
+
+    #confidence-val {
+      font-weight: 700;
+      min-width: 32px;
+      text-align: right;
+    }
+
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    #btn-inject {
+      background: #89b4fa;
+      color: #1e1e2e;
+    }
+    #btn-inject:hover { background: #74a8fc; }
+
+    #btn-highlight {
+      background: #a6e3a1;
+      color: #1e1e2e;
+    }
+    #btn-highlight:hover { background: #8edd88; }
+
+    #btn-clear {
+      background: #f38ba8;
+      color: #1e1e2e;
+    }
+    #btn-clear:hover { background: #ef6f93; }
+
+    #page-content {
+      background: #fff;
+      border-radius: 12px;
+      padding: 24px;
+      line-height: 1.7;
+      font-size: 15px;
+      min-height: 120px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    #page-content:empty::before {
+      content: "Injected text will appear here…";
+      color: #999;
+      font-style: italic;
+    }
+
+    #span-queue {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .span-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #313244;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+
+    .span-item .span-text {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .span-item .span-conf {
+      font-weight: 700;
+      min-width: 36px;
+      text-align: right;
+    }
+
+    .span-item .span-conf.low { color: #a6e3a1; }
+    .span-item .span-conf.medium { color: #f9e2af; }
+    .span-item .span-conf.high { color: #f38ba8; }
+
+    .span-item button {
+      padding: 2px 8px;
+      font-size: 12px;
+      background: #45475a;
+      color: #cdd6f4;
+      border-radius: 4px;
+    }
+
+    .span-item button:hover { background: #585b70; }
+
+    #span-queue:empty::before {
+      content: "No spans queued — add substrings above";
+      color: #6c7086;
+      font-size: 12px;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+
+<div id="test-controls" data-aidet-ignore>
+  <h2>Test Harness</h2>
+
+  <textarea id="input-text" placeholder="Paste or type text here, then click 'Inject into page'. After that, enter a substring to highlight and click 'Highlight'."></textarea>
+  <div class="controls-row">
+    <button id="btn-inject">Inject into page</button>
+    <button id="btn-clear">Clear page</button>
+  </div>
+
+  <div class="controls-row">
+    <label>Substring:</label>
+    <input type="text" id="input-span" placeholder="exact text to match">
+    <label>Confidence:</label>
+    <input type="range" id="input-confidence" min="0" max="100" value="72">
+    <span id="confidence-val">72</span>
+    <button id="btn-add-span">+ Add span</button>
+  </div>
+
+  <div id="span-queue"></div>
+
+  <div class="controls-row">
+    <button id="btn-highlight">Highlight all spans</button>
+  </div>
+</div>
+
+<div id="page-content"></div>
+
+<script>
+  /* ── Mock chrome.runtime so content.js can load outside an extension ── */
+  if (typeof chrome === "undefined" || !chrome.runtime) {
+    window.chrome = window.chrome || {};
+    chrome.runtime = chrome.runtime || {};
+    const listeners = [];
+    chrome.runtime.onMessage = {
+      addListener(fn) { listeners.push(fn); },
+    };
+    chrome.runtime._fireMessage = function (msg) {
+      listeners.forEach((fn) => fn(msg, {}, () => {}));
+    };
+  }
+</script>
+
+<!-- Load the real content script -->
+<script src="content.js"></script>
+
+<script>
+  const inputText       = document.getElementById("input-text");
+  const inputSpan       = document.getElementById("input-span");
+  const inputConfidence = document.getElementById("input-confidence");
+  const confidenceVal   = document.getElementById("confidence-val");
+  const pageContent     = document.getElementById("page-content");
+
+  inputConfidence.addEventListener("input", () => {
+    confidenceVal.textContent = inputConfidence.value;
+  });
+
+  document.getElementById("btn-inject").addEventListener("click", () => {
+    const raw = inputText.value.trim();
+    if (!raw) return;
+    pageContent.textContent = "";
+    raw.split(/\n{2,}/).forEach((para) => {
+      const p = document.createElement("p");
+      p.textContent = para;
+      p.style.marginBottom = "12px";
+      pageContent.appendChild(p);
+    });
+  });
+
+  document.getElementById("btn-clear").addEventListener("click", () => {
+    pageContent.textContent = "";
+  });
+
+  const spanQueue = [];
+  const spanQueueEl = document.getElementById("span-queue");
+
+  function renderQueue() {
+    spanQueueEl.innerHTML = "";
+    spanQueue.forEach((s, i) => {
+      const level = s.confidence >= 70 ? "high" : s.confidence >= 20 ? "medium" : "low";
+      const item = document.createElement("div");
+      item.className = "span-item";
+      item.innerHTML =
+        '<span class="span-text">"' + s.text.replace(/</g, "&lt;") + '"</span>' +
+        '<span class="span-conf ' + level + '">' + s.confidence + '%</span>' +
+        '<button data-idx="' + i + '">&times;</button>';
+      spanQueueEl.appendChild(item);
+    });
+  }
+
+  document.getElementById("btn-add-span").addEventListener("click", () => {
+    const text = inputSpan.value;
+    if (!text) return;
+    const confidence = parseInt(inputConfidence.value, 10);
+    spanQueue.push({
+      text: text,
+      confidence: confidence,
+      reason: "Test — " + confidence + "% confidence that this text is AI-generated.",
+    });
+    inputSpan.value = "";
+    renderQueue();
+  });
+
+  spanQueueEl.addEventListener("click", (e) => {
+    if (e.target.tagName === "BUTTON" && e.target.dataset.idx != null) {
+      spanQueue.splice(parseInt(e.target.dataset.idx, 10), 1);
+      renderQueue();
+    }
+  });
+
+  document.getElementById("btn-highlight").addEventListener("click", () => {
+    if (!spanQueue.length) return;
+    const avg = Math.round(spanQueue.reduce((s, x) => s + x.confidence, 0) / spanQueue.length);
+
+    chrome.runtime._fireMessage({
+      type: "text-result",
+      spans: spanQueue.slice(),
+      overallScore: avg,
+      fullReason: "Overall test explanation.",
+    });
+
+    spanQueue.length = 0;
+    renderQueue();
+  });
+</script>
+
+</body>
+</html>
