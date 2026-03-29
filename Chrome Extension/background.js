@@ -7,8 +7,10 @@
  * and returns Gemini confidence + reasoning to the content script.
  */
 
+const TEXT_API_URL = "http://127.0.0.1:8000/analyze-text";
 const IMAGE_API_URL = "http://127.0.0.1:8000/analyze-image";
 const VIDEO_API_URL = "http://127.0.0.1:8000/analyze-video";
+const TEXT_API_TIMEOUT_MS = 30000;
 const IMAGE_API_TIMEOUT_MS = 15000;
 const VIDEO_API_TIMEOUT_MS = 60000;
 
@@ -178,6 +180,8 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     analyzeVideo(sender.tab.id, msg.videoUrl);
   } else if (msg.type === "analyze-video-frame" && sender.tab?.id) {
     analyzeVideoFrame(sender.tab.id, msg);
+  } else if (msg.type === "analyze-text" && sender.tab?.id) {
+    analyzeText(sender.tab.id, msg.text);
   }
 });
 
@@ -240,6 +244,75 @@ async function analyzeImage(tabId, srcUrl) {
       srcUrl,
       score: 0,
       reason: formatImageErrorMessage(details),
+    });
+  }
+}
+
+/**
+ * Sends selected text to the backend /analyze-text endpoint and
+ * returns the Gemini confidence + reasoning.
+ */
+async function analyzeTextWithBackend(text) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TEXT_API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(TEXT_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      const body = toShortText(await response.text());
+      throw { kind: "http", status: response.status, message: body };
+    }
+
+    return await response.json();
+  } catch (error) {
+    clearTimeout(timeout);
+    if (error?.kind) throw error;
+    throw {
+      kind: error?.name === "AbortError" ? "timeout" : "network",
+      message: String(error?.message || error),
+    };
+  }
+}
+
+/**
+ * Full text analysis pipeline: calls the backend, then sends
+ * the result back to the content script as a text-result message.
+ */
+async function analyzeText(tabId, text) {
+  console.log("[Verity] Starting text analysis", { tabId, textLength: text.length });
+
+  try {
+    const result = await analyzeTextWithBackend(text);
+    const score = _normalizeConfidence(result.confidence);
+
+    await chrome.tabs.sendMessage(tabId, {
+      type: "text-result",
+      spans: [{
+        text,
+        confidence: score,
+        reason: result.reasoning || "",
+      }],
+      overallScore: score,
+      fullReason: result.reasoning || "",
+    });
+  } catch (error) {
+    console.error("[Verity] Text analysis failed", { tabId, error });
+    await chrome.tabs.sendMessage(tabId, {
+      type: "text-result",
+      spans: [{
+        text,
+        confidence: 0,
+        reason: "Analysis failed: " + (error?.message || String(error)),
+      }],
+      overallScore: 0,
+      fullReason: "Analysis failed: " + (error?.message || String(error)),
     });
   }
 }

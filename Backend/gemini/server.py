@@ -19,6 +19,7 @@ except ImportError:
     pillow_heif = None
 
 from geminiImageCall import detect_ai_image_as_dict
+from geminiTextCall import detect_ai_text
 from geminiVideoCall import detect_ai_video
 
 app = Flask(__name__)
@@ -66,6 +67,37 @@ def _load_image_for_analysis(*, image_bytes: bytes, image_url: str, content_type
         return Image.open(png_buffer).convert("RGB")
 
     return img.convert("RGB")
+
+
+@app.post("/analyze-text")
+def analyze_text() -> Any:
+    payload = request.get_json(silent=True) or {}
+    text = payload.get("text", "").strip()
+
+    if not text:
+        return jsonify({"error": "text is required."}), 400
+
+    try:
+        raw = detect_ai_text(text)
+        result = json.loads(raw) if isinstance(raw, str) else raw
+    except Exception as exc:
+        return jsonify({"error": f"Text analysis failed: {exc}"}), 500
+
+    if isinstance(result, dict) and "error" in result:
+        return jsonify(result), 500
+
+    if isinstance(result, dict):
+        confidence = _normalize_confidence(result.get("confidence"))
+        reasoning = str(result.get("reasoning", "")).strip()
+        return jsonify(
+            {
+                "label": result.get("label", "unknown"),
+                "confidence": confidence,
+                "reasoning": reasoning,
+            }
+        )
+
+    return jsonify({"error": "Unexpected response format from model."}), 500
 
 
 @app.post("/analyze-image")

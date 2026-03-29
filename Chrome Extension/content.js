@@ -215,6 +215,10 @@
    * matching occurrences on the page, then persists the result.
    */
   function handleTextResult(msg) {
+    if (activeTextLoader) {
+      activeTextLoader.remove();
+      activeTextLoader = null;
+    }
     if (!msg.spans || !msg.spans.length) return;
     msg.spans.forEach((span) => findAndWrapAll(span));
     saveResult(msg);
@@ -462,11 +466,12 @@
     }
   });
 
+  let activeTextLoader = null;
+
   /**
-   * Captures the current text selection from the DOM and splits it
-   * into random chunks with random confidence scores for testing.
-   * Uses the exact substring positions from the selection so the
-   * text matches the DOM precisely (no whitespace normalization).
+   * Captures the current text selection, shows a loading pill
+   * over the selection, and sends the text to the background
+   * script for Gemini analysis via the backend API.
    */
   function analyzeSelection() {
     const sel = window.getSelection();
@@ -480,6 +485,8 @@
 
     sel.removeAllRanges();
 
+    if (activeTextLoader) activeTextLoader.remove();
+
     const loader = document.createElement("div");
     loader.className = "aidet-loading-pill";
     loader.style.top = window.scrollY + rect.top + "px";
@@ -488,38 +495,12 @@
     loader.style.height = rect.height + "px";
     loader.style.borderRadius = Math.min(rect.height / 2, 14) + "px";
     document.body.appendChild(loader);
+    activeTextLoader = loader;
 
-    setTimeout(() => {
-      loader.remove();
-
-      const span = generateSelectionSpan(text);
-      if (!span) return;
-
-      handleTextResult({
-        type: "text-result",
-        spans: [span],
-        overallScore: span.confidence,
-        fullReason: "Test analysis of selected text.",
-      });
-    }, 1500);
-  }
-
-  /**
-   * Builds one test span from the full selected text so selection
-   * analysis highlights and scores the entire selection as a unit.
-   */
-  function generateSelectionSpan(text) {
-    if (!text.trim()) return null;
-
-    const confidence = Math.floor(Math.random() * 100);
-    return {
+    chrome.runtime.sendMessage({
+      type: "analyze-text",
       text,
-      confidence,
-      reason:
-        "Test — " +
-        confidence +
-        "% confidence this selected text is AI-generated.",
-    };
+    });
   }
 
   /**
